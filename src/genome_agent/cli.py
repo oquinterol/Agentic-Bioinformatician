@@ -228,10 +228,36 @@ def cmd_plan(args: argparse.Namespace) -> int:
     return 0 if outcome.achieved else 2
 
 
+def cmd_calibration(args: argparse.Namespace) -> int:
+    from genome_agent.resources.observations import ObservationStore
+
+    store = ObservationStore()
+    rows = store.report()
+    if args.json:
+        print(json.dumps({"store": str(store.path), "groups": rows}, indent=2))
+        return 0
+    print(f"Observations: {store.path}")
+    if not rows:
+        print("  (none yet: they are recorded when jobs finish)")
+    for r in rows:
+        flag = "  <- UNDERESTIMATED" if r["underestimates"] else ""
+        print(
+            f"  {r['tool']:<14} {json.dumps(r['params'])}\n"
+            f"      runs={r['runs']} peak/estimate median={r['median_peak_over_estimate']} "
+            f"max={r['max_peak_over_estimate']} max_peak={r['max_peak_rss_gb']} GB "
+            f"max_input={r['max_input_gb']} GB{flag}"
+        )
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="genome-agent", description=__doc__)
     p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     sub = p.add_subparsers(dest="command", required=True)
+
+    s = sub.add_parser("calibration", help="estimated vs. observed RAM on this machine")
+    s.add_argument("--json", action="store_true")
+    s.set_defaults(func=cmd_calibration)
 
     s = sub.add_parser("inspect", help="inventory this machine")
     s.add_argument("--json", action="store_true", help="machine-readable output")

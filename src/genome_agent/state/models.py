@@ -52,6 +52,7 @@ class JobStatus(StrEnum):
     SUCCEEDED = "succeeded"
     FAILED = "failed"
     REJECTED = "rejected"
+    CANCELLED = "cancelled"
 
 
 class Job(BaseModel):
@@ -66,6 +67,8 @@ class Job(BaseModel):
     estimate: ResourceEstimate | None = None
     argv: list[str] = Field(default_factory=list)
     outdir: str | None = None
+    runner_pid: int | None = None
+    cancel_requested: bool = False
     status: JobStatus = JobStatus.PLANNED
     rejection_reasons: list[str] = Field(default_factory=list)
     exit_code: int | None = None

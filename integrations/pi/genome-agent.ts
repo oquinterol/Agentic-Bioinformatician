@@ -80,7 +80,7 @@ const TOOLS: {
 		name: "run_tool",
 		label: "Run tool",
 		description:
-			"Execute a tool through the GenomeAgent harness. The request is validated (tool, params, inputs, CPU/RAM vs budget and vs estimate) and may be rejected with reasons. Outputs go to the project's runs/ directory. Blocks until the job finishes.",
+			"Execute a tool through the GenomeAgent harness. The request is validated (tool, params, inputs, CPU/RAM vs the budget left by running jobs, and vs the estimate) and may be rejected with reasons. Outputs go to the project's runs/ directory. Waits up to wait_s seconds; longer jobs keep running in the background (use wait_job / job_status).",
 		snippet: "Execute a validated bioinformatics job and record the decision",
 		guidelines: [
 			"run_tool requires a scientific reason and the alternatives you considered; they become the auditable decision record.",
@@ -94,7 +94,10 @@ const TOOLS: {
 			genome_size_bp: Type.Optional(Type.Integer({ minimum: 1 })),
 			cpus: Type.Integer({ minimum: 1 }),
 			ram_gb: Type.Number({ exclusiveMinimum: 0 }),
-			timeout_s: Type.Optional(Type.Number({ exclusiveMinimum: 0 })),
+			timeout_s: Type.Optional(Type.Number({ exclusiveMinimum: 0, description: "Kill the job after this many seconds" })),
+			wait_s: Type.Optional(
+				Type.Number({ minimum: 0, maximum: 1800, description: "Seconds to wait for completion (default 300)" }),
+			),
 			reason: Type.String({ minLength: 1, description: "Scientific justification" }),
 			alternatives_considered: Type.Optional(Type.Array(Type.String())),
 			evidence: Type.Optional(FreeObject("Facts supporting the decision")),
@@ -141,6 +144,33 @@ const TOOLS: {
 			stream: Type.Optional(StringEnum(["stderr", "stdout"] as const)),
 			tail_lines: Type.Optional(Type.Integer({ minimum: 1, maximum: 2000 })),
 		}),
+	},
+	{
+		name: "job_status",
+		label: "Job status",
+		description: "Current status of a job (running, succeeded, failed, cancelled...) and its results.",
+		snippet: "Check a background job without waiting",
+		parameters: Type.Object({ job_id: Type.String() }),
+	},
+	{
+		name: "wait_job",
+		label: "Wait for job",
+		description: "Wait up to timeout_s seconds (max 1800) for a running job to finish, then return its status and results.",
+		snippet: "Wait for a background job to finish",
+		guidelines: [
+			"When run_tool returns a job that is still running, use wait_job on it rather than launching duplicates.",
+		],
+		parameters: Type.Object({
+			job_id: Type.String(),
+			timeout_s: Type.Optional(Type.Number({ exclusiveMinimum: 0, maximum: 1800 })),
+		}),
+	},
+	{
+		name: "cancel_job",
+		label: "Cancel job",
+		description: "Cancel a running job (kills its processes) and record the cancellation.",
+		snippet: "Cancel a running job",
+		parameters: Type.Object({ job_id: Type.String() }),
 	},
 ];
 

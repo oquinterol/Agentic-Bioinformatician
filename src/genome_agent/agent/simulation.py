@@ -54,6 +54,8 @@ class MockToolSpec(_Strict):
     disk_gb: float = 1.0
     fail_exit_code: int = 0
     n50: int = 1_000_000
+    sleep_s: float = 0.0
+    alloc_mb: int = 0  # RAM the mock process really touches
 
 
 class DatasetSpec(_Strict):

@@ -122,6 +122,29 @@ Adapters may offer `param_variants()`: parameter sets ordered from preferred to
 lower-resource, such as hifiasm `{}` and then `{"bloom_bits": 0}`. The deterministic
 planner tries them before rejecting a tool, and LLM backends see them in `list_tools`.
 
+### Job lifecycle (background runners)
+
+```
+run_tool ─► validate against FREE budget (policy − RUNNING reservations)
+         ─► state: RUNNING, runner_pid          (under project lock)
+         ─► detached `python -m genome_agent.executor.runner runs/<id>`
+                 └─ runs the tool, measures peak RSS, writes runs/<id>/execution.json
+refresh  ─► on every project open/poll: execution.json → SUCCEEDED/FAILED/CANCELLED
+            runner gone without a result → FAILED ("disappeared"), or CANCELLED if requested
+```
+
+- Runners never write `state.json`. Only the harness does, inside `transaction()`: flock, reload, mutate, save.
+- `run_tool(wait_s=…)` returns while the job keeps running. `wait_job`, `job_status` and `cancel_job` follow it up.
+- A job survives the CLI or Pi call that launched it. Cancellation (SIGTERM) is race-safe: it works even before the tool process exists.
+
+### Estimated vs. observed resources
+
+Every finished job appends a `ResourceObservation` (tool, full params, estimate, peak RSS, input size)
+to `~/.local/share/genome-agent/observations.jsonl` (`$GENOME_AGENT_DATA_DIR`). Estimates are **only
+ever raised** from this history: if identical tool+params once exceeded their estimate, later estimates
+are multiplied by the worst ratio, rounded up. They are never lowered, because small runs cannot justify
+lower memory for large inputs. `genome-agent calibration` reports estimate accuracy per tool and params.
+
 Enforcement is currently **advisory** (validation before launch). The `Executor`
 interface will accept `systemd-run --scope -p MemoryMax=… -p CPUQuota=…` or
 container limits without API changes.

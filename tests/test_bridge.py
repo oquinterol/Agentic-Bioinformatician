@@ -38,7 +38,9 @@ def test_list_tools_includes_mocks_in_preference_order_and_real_adapters(project
 
 def test_inspect_system_returns_authoritative_budget(project):
     r = ok(call(project, "inspect_system", {}, ACTOR))
-    assert r["budget"] == {"cpu_threads": 6, "ram_gb": 6.4, "disk_gb": 32.0}
+    b = r["budget"]
+    assert (b["cpu_threads"], b["ram_gb"], b["disk_gb"]) == (6, 6.4, 32.0)
+    assert b["free_now"]["ram_gb"] == 6.4 and b["reserved_by_running_jobs"] == []
 
 
 def test_assess_uses_project_defaults(project):

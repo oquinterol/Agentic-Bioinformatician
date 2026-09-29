@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 import pytest
 
 from genome_agent.resources.models import SystemResources
+from genome_agent.resources.observations import DATA_DIR_ENV
 
 
 def make_resources(**overrides) -> SystemResources:
@@ -23,6 +24,12 @@ def make_resources(**overrides) -> SystemResources:
         tmp_free_gb=40.0,
     )
     return SystemResources(**(base | overrides))
+
+
+@pytest.fixture(autouse=True)
+def isolated_observations(tmp_path_factory, monkeypatch):
+    """Each test gets its own machine-wide observation store (never ~/.local/share)."""
+    monkeypatch.setenv(DATA_DIR_ENV, str(tmp_path_factory.mktemp("ga-data")))
 
 
 @pytest.fixture

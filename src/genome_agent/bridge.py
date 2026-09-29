@@ -21,11 +21,13 @@ from genome_agent.agent.simulation import load_registry
 from genome_agent.executor.validation import DEFAULT_TIMEOUT_S, JobRequest
 from genome_agent.harness import RUNS_DIR, Harness
 from genome_agent.provenance.log import ProvenanceLog
-from genome_agent.state.models import Dataset, DecisionRecord, ProjectState, ReadKind
+from genome_agent.state.models import Dataset, DecisionRecord, JobStatus, ProjectState, ReadKind
 from genome_agent.tools.feasibility import assess
 from genome_agent.tools.registry import ToolInputs
 
 MAX_LOG_LINES = 2000
+DEFAULT_WAIT_S = 300.0
+MAX_WAIT_S = 1800.0
 
 
 class BridgeError(Exception):
@@ -48,6 +50,12 @@ class AssessArgs(_Args):
 
 
 class RunArgs(AssessArgs):
+    wait_s: float = Field(
+        default=DEFAULT_WAIT_S,
+        ge=0,
+        le=MAX_WAIT_S,
+        description="seconds to wait for completion; the job keeps running after that",
+    )
     cpus: int = Field(ge=1)
     ram_gb: float = Field(gt=0)
     timeout_s: float = Field(default=DEFAULT_TIMEOUT_S, gt=0)
@@ -66,6 +74,14 @@ class DecisionArgs(_Args):
 class DatasetArgs(_Args):
     path: str
     kind: ReadKind
+
+
+class JobArgs(_Args):
+    job_id: str
+
+
+class WaitArgs(JobArgs):
+    timeout_s: float = Field(default=DEFAULT_WAIT_S, gt=0, le=MAX_WAIT_S)
 
 
 class LogArgs(_Args):
@@ -92,8 +108,13 @@ def _defaults(h: Harness, a: AssessArgs) -> tuple[list[str], int | None]:
 
 
 def _budget(h: Harness) -> dict[str, Any]:
+    """Policy ceiling, plus what is free now after running jobs' reservations."""
     assert h.state.system_resources is not None
-    return h.state.policy.apply(h.state.system_resources).model_dump()
+    free, running = h.available_budget()
+    return h.state.policy.apply(h.state.system_resources).model_dump() | {
+        "free_now": free.model_dump(),
+        "reserved_by_running_jobs": running,
+    }
 
 
 def inspect_system(h: Harness, _: NoArgs, actor: str) -> dict[str, Any]:
@@ -136,6 +157,7 @@ def project_status(h: Harness, _: NoArgs, actor: str) -> dict[str, Any]:
                     "wall_time_s",
                     "cpus",
                     "ram_gb",
+                    "peak_rss_gb",
                     "outdir",
                 },
             )
@@ -166,25 +188,59 @@ def assess_tool(h: Harness, a: AssessArgs, actor: str) -> dict[str, Any]:
     except ValidationError as exc:
         raise BridgeError(f"invalid params for {a.tool}: {exc.errors()}") from None
     tool_inputs = ToolInputs.from_files([Path(p) for p in inputs], genome_size_bp=genome_size)
-    budget = h.state.policy.apply(h.state.system_resources)
-    result = assess(adapter, tool_inputs, params, budget)
+    budget, _ = h.available_budget()
+    result = assess(adapter, tool_inputs, params, budget, h.observations)
     return result.model_dump() | {"available": adapter.is_available(h.state.system_resources)}
+
+
+def _job_view(h: Harness, job_id: str) -> dict[str, Any]:
+    job = h.job(job_id)
+    view: dict[str, Any] = {
+        "job": job.model_dump(mode="json", exclude={"params", "created_at", "finished_at"}),
+        "results": [r.model_dump() for r in h.state.results if r.job_id == job.id],
+    }
+    if job.status == JobStatus.RUNNING:
+        view["hint"] = "still running: call wait_job or job_status later, or cancel_job"
+    return view
 
 
 def run_tool(h: Harness, a: RunArgs, actor: str) -> dict[str, Any]:
     inputs, genome_size = _defaults(h, a)
     job = h.run_tool(
         JobRequest(
-            **a.model_dump(exclude={"inputs", "genome_size_bp"}),
+            **a.model_dump(exclude={"inputs", "genome_size_bp", "wait_s"}),
             inputs=inputs,
             genome_size_bp=genome_size,
             actor=actor,
-        )
+        ),
+        wait_s=a.wait_s,
     )
-    return {
-        "job": job.model_dump(mode="json", exclude={"params", "created_at", "finished_at"}),
-        "results": [r.model_dump() for r in h.state.results if r.job_id == job.id],
-    }
+    return _job_view(h, job.id)
+
+
+def _known_job(h: Harness, job_id: str) -> None:
+    try:
+        h.job(job_id)
+    except KeyError as exc:
+        raise BridgeError(str(exc.args[0])) from None
+
+
+def job_status(h: Harness, a: JobArgs, actor: str) -> dict[str, Any]:
+    _known_job(h, a.job_id)
+    return _job_view(h, a.job_id)
+
+
+def wait_job(h: Harness, a: WaitArgs, actor: str) -> dict[str, Any]:
+    _known_job(h, a.job_id)
+    h.wait_job(a.job_id, a.timeout_s)
+    return _job_view(h, a.job_id)
+
+
+def cancel_job(h: Harness, a: JobArgs, actor: str) -> dict[str, Any]:
+    _known_job(h, a.job_id)
+    job = h.cancel_job(a.job_id)
+    h.provenance.append("job_cancel_requested", job_id=job.id, actor=actor)
+    return _job_view(h, a.job_id)
 
 
 def record_decision(h: Harness, a: DecisionArgs, actor: str) -> dict[str, Any]:
@@ -196,9 +252,10 @@ def add_dataset(h: Harness, a: DatasetArgs, actor: str) -> dict[str, Any]:
     p = Path(a.path).expanduser().resolve()
     if not p.is_file():
         raise BridgeError(f"not a file: {p}")
-    if str(p) in {d.path for d in h.state.datasets}:
-        raise BridgeError(f"dataset already registered: {p}")
-    h.state.datasets.append(Dataset(path=str(p), kind=a.kind, size_bytes=p.stat().st_size))
+    with h.transaction() as state:
+        if str(p) in {d.path for d in state.datasets}:
+            raise BridgeError(f"dataset already registered: {p}")
+        state.datasets.append(Dataset(path=str(p), kind=a.kind, size_bytes=p.stat().st_size))
     h.record_decision(
         DecisionRecord(
             decision="add_dataset",
@@ -212,9 +269,8 @@ def add_dataset(h: Harness, a: DatasetArgs, actor: str) -> dict[str, Any]:
 
 def read_job_log(h: Harness, a: LogArgs, actor: str) -> dict[str, Any]:
     """Tail of a job's stdout/stderr. Only logs recorded for this project's jobs."""
-    job = next((j for j in h.state.jobs if j.id == a.job_id), None)
-    if job is None:
-        raise BridgeError(f"unknown job '{a.job_id}'; known: {[j.id for j in h.state.jobs]}")
+    _known_job(h, a.job_id)
+    job = h.job(a.job_id)
     raw = job.stderr_path if a.stream == "stderr" else job.stdout_path
     if raw is None:
         raise BridgeError(f"job {a.job_id} has no {a.stream} log (status: {job.status})")
@@ -242,6 +298,9 @@ OPERATIONS: dict[str, tuple[type[_Args], Operation]] = {
     "record_decision": (DecisionArgs, record_decision),
     "add_dataset": (DatasetArgs, add_dataset),
     "read_job_log": (LogArgs, read_job_log),
+    "job_status": (JobArgs, job_status),
+    "wait_job": (WaitArgs, wait_job),
+    "cancel_job": (JobArgs, cancel_job),
 }
 
 

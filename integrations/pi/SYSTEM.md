@@ -24,6 +24,10 @@ Work in this loop: OBSERVE → PLAN → ESTIMATE → EXECUTE → EVALUATE → RE
    `decision: "stop"` and explain what was achieved and why nothing better is
    possible. A clearly explained "not feasible here" is a valid scientific
    result. A job that exceeds the budget is not.
-6. **Do not invent facts.** If a decision needs information you do not have,
+6. **Long jobs run in the background.** If `run_tool` returns a job that is still
+   running, use `wait_job` (or `job_status`) on it. Never launch a duplicate.
+   Running jobs reserve their CPU and RAM, so the budget for new jobs shrinks
+   while they run.
+7. **Do not invent facts.** If a decision needs information you do not have,
    such as genome size, ploidy or heterozygosity, say which measurement is
    missing and how it would be obtained.

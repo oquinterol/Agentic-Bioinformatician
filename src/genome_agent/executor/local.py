@@ -14,28 +14,33 @@ import os
 import signal
 import subprocess
 import time
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
+
+from pydantic import BaseModel, ConfigDict
 
 STDOUT_FILE = "stdout.log"
 STDERR_FILE = "stderr.log"
 _POLL_S = 0.1
 
 
-@dataclass(frozen=True)
-class ExecutionResult:
+class ExecutionResult(BaseModel):
+    """Outcome of one process; also the on-disk `execution.json` written by the runner."""
+
+    model_config = ConfigDict(frozen=True)
+
     exit_code: int | None  # None if the process never started
     wall_time_s: float
     stdout_path: Path
     stderr_path: Path
     timed_out: bool = False
-    error: str | None = None  # launch failure or timeout description
+    cancelled: bool = False
+    error: str | None = None  # launch failure, timeout or cancellation description
     peak_rss_gb: float | None = None  # observed, from wait4 (None if never started)
 
     @property
     def ok(self) -> bool:
-        return self.exit_code == 0 and not self.timed_out and self.error is None
+        return self.exit_code == 0 and not self.timed_out and not self.cancelled and not self.error
 
 
 class Executor(Protocol):
@@ -68,6 +73,16 @@ def _wait(pid: int, timeout_s: float) -> tuple[int, float, bool]:
 class LocalExecutor:
     """Advisory limits only: cpus/ram were validated, not enforced by the OS."""
 
+    def __init__(self) -> None:
+        self.current_pid: int | None = None  # process group to kill on cancellation
+        self.cancel_requested = False
+
+    def cancel(self) -> None:
+        """Safe to call from a signal handler at any point before, during or after run()."""
+        self.cancel_requested = True
+        if self.current_pid is not None:
+            os.killpg(self.current_pid, signal.SIGKILL)
+
     def run(
         self, argv: list[str], outdir: Path, cpus: int, ram_gb: float, timeout_s: float
     ) -> ExecutionResult:
@@ -82,15 +97,23 @@ class LocalExecutor:
                 )
             except OSError as exc:
                 return ExecutionResult(
-                    None, time.monotonic() - start, out_path, err_path, error=f"launch: {exc}"
+                    exit_code=None,
+                    wall_time_s=time.monotonic() - start,
+                    stdout_path=out_path,
+                    stderr_path=err_path,
+                    error=f"launch: {exc}",
                 )
+            self.current_pid = proc.pid
+            if self.cancel_requested:  # cancelled while the process was being started
+                os.killpg(proc.pid, signal.SIGKILL)
             code, peak, timed_out = _wait(proc.pid, timeout_s)
             proc.returncode = code  # reaped by wait4; keep Popen consistent
+            self.current_pid = None
         return ExecutionResult(
-            code,
-            time.monotonic() - start,
-            out_path,
-            err_path,
+            exit_code=code,
+            wall_time_s=time.monotonic() - start,
+            stdout_path=out_path,
+            stderr_path=err_path,
             timed_out=timed_out,
             error=f"timed out after {timeout_s:g} s" if timed_out else None,
             peak_rss_gb=round(peak, 3),

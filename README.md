@@ -69,9 +69,9 @@ not a terminal, `pi -p` reads it as extra prompt input and waits until it closes
 
 `genome-pi` starts Pi with `--no-builtin-tools --no-extensions --no-skills
 --no-context-files`, loads `integrations/pi/genome-agent.ts`, and appends
-`integrations/pi/SYSTEM.md`. The model sees exactly eight tools: `inspect_system`,
+`integrations/pi/SYSTEM.md`. The model sees exactly eleven tools: `inspect_system`,
 `list_tools`, `project_status`, `assess_tool`, `run_tool`, `record_decision`,
-`add_dataset` and `read_job_log`. Each tool forwards its arguments to `genome-agent tool <op>`, and
+`add_dataset`, `read_job_log`, `job_status`, `wait_job` and `cancel_job`. Each tool forwards its arguments to `genome-agent tool <op>`, and
 every decision is recorded with `actor = llm:<provider>/<model>`. Every call,
 read-only calls included, is logged as a `bridge_call` event in `provenance.jsonl`.
 

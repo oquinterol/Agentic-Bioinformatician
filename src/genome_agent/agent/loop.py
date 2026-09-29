@@ -37,10 +37,8 @@ def run_loop(
     goal: DataType,
     max_iterations: int = DEFAULT_MAX_ITERATIONS,
 ) -> LoopOutcome:
-    state = harness.state
-    res = state.system_resources
+    res = harness.state.system_resources
     assert res is not None
-    budget = state.policy.apply(res)
     iterations = replans = 0
     reason = f"iteration limit ({max_iterations}) reached"
     achieved = False
@@ -50,7 +48,10 @@ def run_loop(
             achieved, reason = True, f"goal '{goal}' reached"
             break
         iterations += 1
-        action = backend.next_action(Observation(state, harness.registry, budget, goal))
+        budget, _ = harness.available_budget()
+        action = backend.next_action(
+            Observation(harness.state, harness.registry, budget, goal, harness.observations)
+        )
         if isinstance(action, Stop):
             reason = action.reason
             harness.record_decision(
@@ -71,7 +72,7 @@ def run_loop(
         if achieved:
             reason = f"goal '{goal}' reached"
 
-    counts = {s: sum(j.status == s for j in state.jobs) for s in JobStatus}
+    counts = {s: sum(j.status == s for j in harness.state.jobs) for s in JobStatus}
     outcome = LoopOutcome(
         achieved=achieved,
         reason=reason,
@@ -81,7 +82,7 @@ def run_loop(
         jobs_failed=counts[JobStatus.FAILED],
         jobs_rejected=counts[JobStatus.REJECTED],
     )
-    state.metrics.update(
+    harness.update_metrics(
         {
             "agent_iterations": iterations,
             "agent_replans": replans,
@@ -90,5 +91,4 @@ def run_loop(
             "agent_goal_achieved": float(achieved),
         }
     )
-    state.save(harness.project_dir)
     return outcome

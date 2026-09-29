@@ -27,7 +27,11 @@ class DeterministicPlanner:
         state = obs.state
         res = state.system_resources
         assert res is not None
-        spent = {j.tool for j in state.jobs if j.status in (JobStatus.FAILED, JobStatus.REJECTED)}
+        spent = {
+            j.tool
+            for j in state.jobs
+            if j.status in (JobStatus.FAILED, JobStatus.REJECTED, JobStatus.CANCELLED)
+        }
         candidates = obs.registry.producing(obs.goal, res)
         if not candidates:
             return Stop(f"no available tool on this machine produces '{obs.goal}'")
@@ -58,7 +62,7 @@ class DeterministicPlanner:
             )
             chosen, reasons = None, []
             for raw in adapter.param_variants():
-                a = assess(adapter, inputs, adapter.parse_params(raw), obs.budget)
+                a = assess(adapter, inputs, adapter.parse_params(raw), obs.budget, obs.observations)
                 if a.fits:
                     chosen = (raw, a)
                     break

@@ -14,7 +14,7 @@ Each phase ends with passing tests. No phase assembles a real genome before Phas
 | 7 | Deterministic planner, agent loop, `genome-agent simulate scenario.toml` (select / reject / recover) | done |
 | 8 | `genome-agent tool <op>` JSON protocol + Pi bridge (`integrations/pi/`), token-free selftest, `read_job_log`, provenance for every call | done |
 | 9 | Real workflow on toy data: hifiasm adapter (verified bloom-filter memory model), param variants, observed peak RSS, `toy-data`/`add-dataset`/`plan` | done |
-| 10 | Estimator calibration from observed peak RSS, cgroup enforcement, background jobs (non-blocking `run_tool`) | next |
+| 10 | a: read-kind coherence · b: background jobs, project lock, reservations · c: observations + upward-only correction · d: cgroup enforcement | a–c done, d next |
 | 11 | Benchmark harness: same scenario × N models | |
 
 ## Phase 7 acceptance scenarios (`examples/*.toml`, all covered by tests)

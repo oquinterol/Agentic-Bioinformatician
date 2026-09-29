@@ -16,6 +16,8 @@ from typing import Any
 from pydantic import BaseModel, Field, ValidationError
 
 from genome_agent.resources.models import ResourceBudget, ResourceEstimate, SystemResources
+from genome_agent.resources.observations import ObservationStore
+from genome_agent.tools.feasibility import corrected_estimate
 from genome_agent.tools.registry import EstimationError, ToolInputs, ToolRegistry
 
 DEFAULT_TIMEOUT_S = 24 * 3600.0
@@ -72,8 +74,10 @@ def validate(
     budget: ResourceBudget,
     outdir: Path,
     datasets: dict[str, str] | None = None,
+    observations: ObservationStore | None = None,
 ) -> ValidatedJob:
-    """`datasets` maps registered dataset paths to their kind (ReadKind value)."""
+    """`datasets` maps registered dataset paths to their kind (ReadKind value);
+    `observations` raises estimates that past identical runs exceeded."""
     try:
         adapter = registry.get(req.tool)
     except KeyError as exc:
@@ -102,7 +106,7 @@ def validate(
     inputs = ToolInputs.from_files(paths, genome_size_bp=req.genome_size_bp)
 
     try:
-        est = adapter.estimate(inputs, params, req.cpus)
+        est = corrected_estimate(adapter, inputs, params, req.cpus, observations)
     except EstimationError as exc:
         raise JobRejectedError([str(exc)]) from None
 

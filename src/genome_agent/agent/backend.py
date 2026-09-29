@@ -14,6 +14,7 @@ from typing import Any, Protocol
 
 from genome_agent.executor.validation import JobRequest
 from genome_agent.resources.models import ResourceBudget
+from genome_agent.resources.observations import ObservationStore
 from genome_agent.state.models import ProjectState
 from genome_agent.tools.registry import DataType, ToolRegistry
 
@@ -22,8 +23,9 @@ from genome_agent.tools.registry import DataType, ToolRegistry
 class Observation:
     state: ProjectState
     registry: ToolRegistry
-    budget: ResourceBudget
+    budget: ResourceBudget  # what is free now (running jobs already subtracted)
     goal: DataType
+    observations: ObservationStore | None = None  # past estimate-vs-peak on this machine
 
 
 @dataclass(frozen=True)

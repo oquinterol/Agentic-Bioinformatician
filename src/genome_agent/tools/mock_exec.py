@@ -15,7 +15,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--n50", type=int, required=True)
     p.add_argument("--exit-code", type=int, default=0)
     p.add_argument("--sleep", type=float, default=0.0)
+    p.add_argument("--alloc-mb", type=int, default=0, help="touch this much RAM")
     a = p.parse_args(argv)
+    ballast = bytearray(a.alloc_mb * 1024 * 1024)
+    ballast[::4096] = b"x" * len(ballast[::4096])  # touch every page so RSS really grows
     time.sleep(a.sleep)
     if a.exit_code:
         print(f"mock assembler: simulated failure (exit {a.exit_code})", file=sys.stderr)
