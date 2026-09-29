@@ -72,6 +72,7 @@ class Job(BaseModel):
     timed_out: bool = False
     error: str | None = None
     wall_time_s: float | None = None
+    peak_rss_gb: float | None = None  # observed; compare with estimate.ram_gb
     stdout_path: str | None = None
     stderr_path: str | None = None
     created_at: datetime = Field(default_factory=_now)

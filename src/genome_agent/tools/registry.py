@@ -69,6 +69,11 @@ class ToolAdapter[P: ToolParams](ABC):
     def parse_params(self, raw: dict[str, Any]) -> P:
         return self.params_model.model_validate(raw)
 
+    def param_variants(self) -> list[dict[str, Any]]:
+        """Parameter sets to try, most preferred first. Later entries trade speed
+        or features for lower resource use (e.g. hifiasm without its bloom filter)."""
+        return [{}]
+
     @abstractmethod
     def estimate(self, inputs: ToolInputs, params: P, cpus: int) -> ResourceEstimate:
         """Predicted peak usage when run with `cpus` threads."""
@@ -89,6 +94,7 @@ class ToolAdapter[P: ToolParams](ABC):
             "input_types": sorted(self.input_types),
             "output_types": sorted(self.output_types),
             "params_schema": self.params_model.model_json_schema(),
+            "param_variants": self.param_variants(),
         }
 
 
@@ -128,6 +134,7 @@ class ToolRegistry:
 
 
 def default_registry() -> ToolRegistry:
+    from genome_agent.tools.adapters.hifiasm import Hifiasm
     from genome_agent.tools.adapters.seqkit import SeqkitStats
 
-    return ToolRegistry([SeqkitStats()])
+    return ToolRegistry([Hifiasm(), SeqkitStats()])

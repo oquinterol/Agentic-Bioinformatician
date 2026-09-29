@@ -116,6 +116,11 @@ top and can be removed.
    captures stdout and stderr to files and records the exit code and wall time.
    A non-zero exit is recorded as a failure. Failures are never swallowed.
 5. Every command, and every decision that led to it, is written to state and provenance.
+   Each job also records its **observed peak RSS** (`os.wait4`) next to the estimate.
+
+Adapters may offer `param_variants()`: parameter sets ordered from preferred to
+lower-resource, such as hifiasm `{}` and then `{"bloom_bits": 0}`. The deterministic
+planner tries them before rejecting a tool, and LLM backends see them in `list_tools`.
 
 Enforcement is currently **advisory** (validation before launch). The `Executor`
 interface will accept `systemd-run --scope -p MemoryMax=… -p CPUQuota=…` or

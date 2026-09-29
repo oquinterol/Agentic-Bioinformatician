@@ -105,7 +105,9 @@ def test_build_project_refuses_existing_project(tmp_path):
 def test_cli_simulate(tmp_path, capsys):
     rc = cli.main(["simulate", str(EXAMPLES / "impossible.toml"), "--project", str(tmp_path / "p")])
     out = capsys.readouterr().out
-    assert rc == 0 and "STOPPED" in out and "x assembler_A: needs 35.0 GB RAM" in out
+    assert (
+        rc == 0 and "STOPPED" in out and "x assembler_A: params default: needs 35.0 GB RAM" in out
+    )
 
 
 def test_cli_simulate_reports_mismatch(tmp_path, capsys):

@@ -26,6 +26,23 @@ python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'
 
 The MVP is Linux-only (it reads `/proc`).
 
+## A real assembly on toy data
+
+The tools used here (hifiasm, seqkit) must be installed. Everything finishes in seconds.
+
+```bash
+GA=.venv/bin/genome-agent
+$GA toy-data /tmp/seq                       # 200 kb random genome + 30x HiFi-like reads
+$GA init /tmp/toy --objective "Best contig assembly"
+$GA add-dataset /tmp/toy /tmp/seq/reads.fq --kind pacbio_hifi   # data stays where it is
+$GA plan /tmp/toy                           # deterministic planner -> real hifiasm
+# Or constrain the machine and watch it switch to hifiasm -f0 (no 16 GiB bloom filter):
+$GA init /tmp/toy8 --ram-fraction 0.1 && $GA add-dataset /tmp/toy8 /tmp/seq/reads.fq --kind pacbio_hifi
+$GA plan /tmp/toy8
+```
+
+Each job records its estimated RAM and its **observed peak RSS**, so estimates can be checked against reality.
+
 ## Running with Pi (LLM brain)
 
 Pi uses whatever authentication you already configured (subscriptions or API

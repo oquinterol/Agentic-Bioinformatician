@@ -1,4 +1,4 @@
-"""Command-line entry point: `genome-agent inspect | init | status | simulate | tool`."""
+"""Command-line entry point for GenomeAgent (see `genome-agent --help`)."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from pathlib import Path
 from genome_agent import __version__
 from genome_agent.resources.inspector import inspect_system
 from genome_agent.resources.models import ResourcePolicy, SystemResources
-from genome_agent.state.models import DecisionRecord, ProjectState
+from genome_agent.state.models import DecisionRecord, ProjectState, ReadKind
 
 PROJECT_SUBDIRS = ("data", "runs", "results")
 
@@ -70,7 +70,14 @@ def cmd_init(args: argparse.Namespace) -> int:
     for sub in PROJECT_SUBDIRS:
         (project / sub).mkdir(parents=True, exist_ok=True)
     res = inspect_system(project)
-    state = ProjectState(name=project.name, objective=args.objective or "", system_resources=res)
+    policy = ResourcePolicy(
+        ram_fraction=args.ram_fraction,
+        reserved_threads=args.reserved_threads,
+        disk_fraction=args.disk_fraction,
+    )
+    state = ProjectState(
+        name=project.name, objective=args.objective or "", system_resources=res, policy=policy
+    )
     state.decisions.append(
         DecisionRecord(
             decision="init_project",
@@ -168,6 +175,59 @@ def cmd_tool(args: argparse.Namespace) -> int:
     return 0 if response["ok"] else 2
 
 
+def cmd_toy_data(args: argparse.Namespace) -> int:
+    from genome_agent.toydata import make_toy_hifi
+
+    ds = make_toy_hifi(
+        Path(args.outdir),
+        genome_size=args.genome_size,
+        coverage=args.coverage,
+        heterozygosity=args.heterozygosity,
+        seed=args.seed,
+    )
+    print(f"Truth genome: {ds.genome_fasta} ({ds.genome_size_bp:,} bp per haplotype)")
+    print(f"HiFi reads:   {ds.reads_fastq} ({ds.n_reads} reads, {ds.read_bases:,} bp)")
+    return 0
+
+
+def cmd_add_dataset(args: argparse.Namespace) -> int:
+    from genome_agent.bridge import call
+
+    resp = call(
+        Path(args.project).resolve(), "add_dataset", {"path": args.path, "kind": args.kind}, "user"
+    )
+    if not resp["ok"]:
+        print(f"error: {resp['error']}", file=sys.stderr)
+        return 1
+    print(f"Registered {args.kind} dataset {Path(args.path).resolve()}")
+    return 0
+
+
+def cmd_plan(args: argparse.Namespace) -> int:
+    from genome_agent.agent.loop import run_loop
+    from genome_agent.agent.planner import DeterministicPlanner
+    from genome_agent.agent.simulation import load_registry
+    from genome_agent.harness import Harness
+    from genome_agent.tools.registry import DataType
+
+    project = Path(args.project).resolve()
+    harness = Harness(project, load_registry(project))
+    n_decisions = len(harness.state.decisions)
+    outcome = run_loop(harness, DeterministicPlanner(), DataType(args.goal), args.max_iterations)
+    jobs = {j.id: j for j in harness.state.jobs}
+    for d in harness.state.decisions[n_decisions:]:
+        print(f"[{d.actor}] {d.decision}: {d.reason}")
+        job = jobs.get(str(d.evidence.get("job_id", "")))
+        if job:
+            rss = f", peak RSS {job.peak_rss_gb:.2f} GB" if job.peak_rss_gb is not None else ""
+            est = f" (estimated {job.estimate.ram_gb:.2f} GB)" if job.estimate else ""
+            print(f"    -> {job.id}: {job.status}, {job.wall_time_s}s{rss}{est}")
+    for r in harness.state.results:
+        print(f"Result {r.job_id} [{r.kind}]: {json.dumps(r.data)[:400]}")
+    print(f"Outcome: {'ACHIEVED' if outcome.achieved else 'STOPPED'} — {outcome.reason}")
+    return 0 if outcome.achieved else 2
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="genome-agent", description=__doc__)
     p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
@@ -181,6 +241,25 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("init", help="create a project directory")
     s.add_argument("path")
     s.add_argument("--objective", help="scientific objective, free text")
+    d = ResourcePolicy()
+    s.add_argument(
+        "--ram-fraction",
+        type=float,
+        default=d.ram_fraction,
+        help="share of available RAM jobs may use (default %(default)s)",
+    )
+    s.add_argument(
+        "--reserved-threads",
+        type=int,
+        default=d.reserved_threads,
+        help="threads kept free for the system (default %(default)s)",
+    )
+    s.add_argument(
+        "--disk-fraction",
+        type=float,
+        default=d.disk_fraction,
+        help="share of free disk jobs may use (default %(default)s)",
+    )
     s.set_defaults(func=cmd_init)
 
     s = sub.add_parser("simulate", help="run a mock scenario with the deterministic planner")
@@ -198,6 +277,26 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--project", default=".")
     s.add_argument("--actor", default="harness", help='who is deciding, e.g. "llm:anthropic/..."')
     s.set_defaults(func=cmd_tool)
+
+    s = sub.add_parser("toy-data", help="write a deterministic toy HiFi dataset")
+    s.add_argument("outdir")
+    s.add_argument("--genome-size", type=int, default=200_000)
+    s.add_argument("--coverage", type=float, default=30.0)
+    s.add_argument("--heterozygosity", type=float, default=0.0)
+    s.add_argument("--seed", type=int, default=1)
+    s.set_defaults(func=cmd_toy_data)
+
+    s = sub.add_parser("add-dataset", help="register an existing reads file (read-only)")
+    s.add_argument("project")
+    s.add_argument("path")
+    s.add_argument("--kind", required=True, choices=[k.value for k in ReadKind])
+    s.set_defaults(func=cmd_add_dataset)
+
+    s = sub.add_parser("plan", help="run the deterministic planner on a project")
+    s.add_argument("project", nargs="?", default=".")
+    s.add_argument("--goal", default="contigs_fasta")
+    s.add_argument("--max-iterations", type=int, default=10)
+    s.set_defaults(func=cmd_plan)
 
     s = sub.add_parser("status", help="summarise project state")
     s.add_argument("path", nargs="?", default=".")

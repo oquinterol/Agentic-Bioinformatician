@@ -106,6 +106,7 @@ class Harness:
             r.error,
         )
         job.stdout_path, job.stderr_path = str(r.stdout_path), str(r.stderr_path)
+        job.peak_rss_gb = r.peak_rss_gb
         job.finished_at = datetime.now(UTC)
 
         if r.ok:
@@ -131,6 +132,8 @@ class Harness:
             status=job.status,
             exit_code=job.exit_code,
             wall_time_s=job.wall_time_s,
+            peak_rss_gb=job.peak_rss_gb,
+            estimated_ram_gb=job.estimate.ram_gb if job.estimate else None,
             error=job.error,
         )
         self._save()

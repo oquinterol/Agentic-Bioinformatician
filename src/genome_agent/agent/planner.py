@@ -5,6 +5,7 @@ Policy (deliberately simple — scientific judgement is the LLM's job later):
    (registry order encodes preference);
 2. drop tools that already failed or were rejected for this goal;
 3. assess each remaining one against the budget (with thread fallback);
+   each adapter's param_variants() are tried in order (e.g. hifiasm -f0);
 4. run the first that fits; if none fits, stop and explain every rejection.
 """
 
@@ -49,22 +50,39 @@ class DeterministicPlanner:
         for adapter in candidates:
             if adapter.name in spent:
                 continue
-            a = assess(adapter, inputs, adapter.parse_params({}), obs.budget)
-            if not a.fits:
-                rejected[adapter.name] = a.reasons
+            chosen, reasons = None, []
+            for raw in adapter.param_variants():
+                a = assess(adapter, inputs, adapter.parse_params(raw), obs.budget)
+                if a.fits:
+                    chosen = (raw, a)
+                    break
+                reasons += [f"params {raw or 'default'}: {r}" for r in a.reasons]
+            if chosen is None:
+                rejected[adapter.name] = reasons
                 continue
+            raw, a = chosen
             assert a.estimate is not None
             others = [c.name for c in candidates if c.name != adapter.name]
+            if reasons:  # a lower-resource variant was needed
+                others.append(f"{adapter.name} with default params (does not fit)")
             return RunTool(
                 JobRequest(
                     tool=adapter.name,
+                    params=raw,
                     inputs=[d.path for d in state.datasets],
                     cpus=a.estimate.cpus,
                     ram_gb=a.estimate.ram_gb,
                     genome_size_bp=state.biological_context.genome_size_bp,
-                    reason=_reason(adapter.name, obs, rejected),
+                    reason=_reason(
+                        adapter.name, obs, rejected | ({adapter.name: reasons} if reasons else {})
+                    ),
                     alternatives_considered=others,
-                    evidence={"rejected_alternatives": rejected, "budget": obs.budget.model_dump()},
+                    evidence={
+                        "rejected_alternatives": rejected,
+                        "rejected_variants": reasons,
+                        "estimate_basis": a.estimate.basis,
+                        "budget": obs.budget.model_dump(),
+                    },
                     actor=self.name,
                 )
             )
