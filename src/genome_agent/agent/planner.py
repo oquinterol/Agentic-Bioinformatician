@@ -32,13 +32,9 @@ class DeterministicPlanner:
         if not candidates:
             return Stop(f"no available tool on this machine produces '{obs.goal}'")
 
-        paths = [Path(d.path) for d in state.datasets]
-        if missing := [str(p) for p in paths if not p.is_file()]:
+        if missing := [d.path for d in state.datasets if not Path(d.path).is_file()]:
             return Stop("dataset files are missing", evidence={"missing": missing})
-        inputs = ToolInputs.from_files(
-            paths,
-            genome_size_bp=state.biological_context.genome_size_bp,
-        )
+        datasets = {d.path: str(d.kind) for d in state.datasets}
         rejected: dict[str, list[str]] = {
             j.tool: [
                 f"previous attempt {j.id} {j.status}: "
@@ -50,6 +46,16 @@ class DeterministicPlanner:
         for adapter in candidates:
             if adapter.name in spent:
                 continue
+            selected = adapter.select_inputs(datasets)
+            if not selected:
+                rejected[adapter.name] = [
+                    f"no registered dataset of kind {sorted(adapter.accepted_read_kinds or [])}"
+                ]
+                continue
+            inputs = ToolInputs.from_files(
+                [Path(p) for p in selected],
+                genome_size_bp=state.biological_context.genome_size_bp,
+            )
             chosen, reasons = None, []
             for raw in adapter.param_variants():
                 a = assess(adapter, inputs, adapter.parse_params(raw), obs.budget)
@@ -69,7 +75,7 @@ class DeterministicPlanner:
                 JobRequest(
                     tool=adapter.name,
                     params=raw,
-                    inputs=[d.path for d in state.datasets],
+                    inputs=selected,
                     cpus=a.estimate.cpus,
                     ram_gb=a.estimate.ram_gb,
                     genome_size_bp=state.biological_context.genome_size_bp,

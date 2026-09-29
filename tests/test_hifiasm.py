@@ -166,3 +166,63 @@ def test_toy_data_is_deterministic_and_diploid(tmp_path):
     haps = d.genome_fasta.read_text().split("\n")[1::2][:2]
     diffs = sum(x != y for x, y in zip(*haps, strict=True))
     assert diffs == 200  # 1 % of 20 kb
+
+
+def project_with(tmp_path, datasets: list[tuple[str, ReadKind]]):
+    exe = shutil.which("hifiasm") or "/usr/bin/hifiasm"
+    res = make_resources(ram_available_gb=60, tools={"hifiasm": ToolInfo(name="hifiasm", path=exe)})
+    ds = []
+    for name, kind in datasets:
+        f = tmp_path / name
+        f.write_text("@r\nACGT\n+\nIIII\n")
+        ds.append(Dataset(path=str(f), kind=kind))
+    ProjectState(name="p", system_resources=res, datasets=ds).save(tmp_path / "proj")
+    return Harness(tmp_path / "proj", default_registry())
+
+
+def test_hifiasm_rejects_non_hifi_and_unregistered_inputs(tmp_path):
+    from genome_agent.executor.validation import JobRequest
+
+    h = project_with(tmp_path, [("ont.fq", ReadKind.ONT)])
+    stray = tmp_path / "stray.fq"
+    stray.write_text("@r\nA\n+\nI\n")
+    for path, expected in [(tmp_path / "ont.fq", "is ont"), (stray, "not a registered dataset")]:
+        job = h.run_tool(
+            JobRequest(tool="hifiasm", inputs=[str(path)], cpus=1, ram_gb=20, reason="x")
+        )
+        assert job.status == JobStatus.REJECTED
+        assert any(expected in r for r in job.rejection_reasons), job.rejection_reasons
+
+
+def test_planner_uses_only_hifi_datasets_and_explains_missing_kind(tmp_path):
+    h = project_with(tmp_path, [("hifi.fq", ReadKind.HIFI), ("hic.fq", ReadKind.HIC)])
+    budget = ResourcePolicy().apply(h.state.system_resources)
+    obs = Observation(h.state, h.registry, budget, DataType.CONTIGS_FASTA)
+    action = DeterministicPlanner().next_action(obs)
+    assert isinstance(action, RunTool) and action.request.inputs == [str(tmp_path / "hifi.fq")]
+
+    h2 = (
+        project_with(tmp_path / "b", [("ont.fq", ReadKind.ONT)])
+        if (tmp_path / "b").mkdir() is None
+        else None
+    )
+    obs2 = Observation(h2.state, h2.registry, budget, DataType.CONTIGS_FASTA)
+    stop = DeterministicPlanner().next_action(obs2)
+    assert not isinstance(stop, RunTool)
+    assert (
+        "no registered dataset of kind ['pacbio_hifi']" in stop.evidence["rejected"]["hifiasm"][0]
+    )
+
+
+def test_bridge_defaults_to_accepted_kinds(tmp_path):
+    from genome_agent.bridge import call
+
+    h = project_with(tmp_path, [("hifi.fq", ReadKind.HIFI), ("ont.fq", ReadKind.ONT)])
+    r = call(h.project_dir, "assess_tool", {"tool": "hifiasm"}, "t")
+    assert r["ok"]
+    r2 = call(h.project_dir, "assess_tool", {"tool": "seqkit_stats"}, "t")  # accepts any
+    assert r2["ok"]
+    assert (
+        "pacbio_hifi"
+        in call(h.project_dir, "list_tools", {}, "t")["result"]["tools"][0]["accepted_read_kinds"]
+    )

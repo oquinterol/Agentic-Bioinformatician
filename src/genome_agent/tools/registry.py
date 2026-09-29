@@ -62,6 +62,8 @@ class ToolAdapter[P: ToolParams](ABC):
     input_types: frozenset[DataType]
     output_types: frozenset[DataType]
     params_model: type[P]
+    # Dataset kinds (ReadKind values) this tool is valid for; None = any input file.
+    accepted_read_kinds: frozenset[str] | None = None
 
     def is_available(self, res: SystemResources) -> bool:
         return self.executable in res.tools
@@ -95,7 +97,18 @@ class ToolAdapter[P: ToolParams](ABC):
             "output_types": sorted(self.output_types),
             "params_schema": self.params_model.model_json_schema(),
             "param_variants": self.param_variants(),
+            "accepted_read_kinds": (
+                sorted(self.accepted_read_kinds) if self.accepted_read_kinds is not None else "any"
+            ),
         }
+
+    def select_inputs(self, datasets: dict[str, str]) -> list[str]:
+        """Default inputs from registered datasets (path -> kind) that this tool accepts."""
+        return [
+            p
+            for p, kind in datasets.items()
+            if self.accepted_read_kinds is None or kind in self.accepted_read_kinds
+        ]
 
 
 type AnyAdapter = ToolAdapter[Any]

@@ -71,7 +71,9 @@ def validate(
     resources: SystemResources,
     budget: ResourceBudget,
     outdir: Path,
+    datasets: dict[str, str] | None = None,
 ) -> ValidatedJob:
+    """`datasets` maps registered dataset paths to their kind (ReadKind value)."""
     try:
         adapter = registry.get(req.tool)
     except KeyError as exc:
@@ -87,6 +89,16 @@ def validate(
     paths, problems = _check_inputs(req.inputs)
     if problems:
         raise JobRejectedError(problems)
+    if adapter.accepted_read_kinds is not None:
+        kinds = datasets or {}
+        wrong = [
+            f"{adapter.name} accepts {sorted(adapter.accepted_read_kinds)} datasets; "
+            f"{p} is {kinds.get(str(p), 'not a registered dataset')}"
+            for p in paths
+            if kinds.get(str(p)) not in adapter.accepted_read_kinds
+        ]
+        if wrong:
+            raise JobRejectedError(wrong)
     inputs = ToolInputs.from_files(paths, genome_size_bp=req.genome_size_bp)
 
     try:

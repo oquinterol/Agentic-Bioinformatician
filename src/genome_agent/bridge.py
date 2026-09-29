@@ -75,9 +75,19 @@ class LogArgs(_Args):
 
 
 def _defaults(h: Harness, a: AssessArgs) -> tuple[list[str], int | None]:
-    inputs = a.inputs if a.inputs is not None else [d.path for d in h.state.datasets]
+    """Explicit inputs, else the registered datasets of kinds the tool accepts."""
+    if a.inputs is not None:
+        inputs = a.inputs
+    else:
+        try:
+            adapter = h.registry.get(a.tool)
+        except KeyError as exc:
+            raise BridgeError(str(exc.args[0])) from None
+        inputs = adapter.select_inputs({d.path: str(d.kind) for d in h.state.datasets})
     if not inputs:
-        raise BridgeError("no inputs given and the project has no datasets (use add_dataset)")
+        raise BridgeError(
+            f"no inputs given and no registered dataset suits {a.tool} (use add_dataset)"
+        )
     return inputs, a.genome_size_bp or h.state.biological_context.genome_size_bp
 
 

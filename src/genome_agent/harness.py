@@ -62,7 +62,14 @@ class Harness:
         self.state.jobs.append(job)
 
         try:
-            vj = validate(req, self.registry, res, self.state.policy.apply(res), outdir)
+            vj = validate(
+                req,
+                self.registry,
+                res,
+                self.state.policy.apply(res),
+                outdir,
+                datasets={d.path: d.kind for d in self.state.datasets},
+            )
         except JobRejectedError as exc:
             job.status, job.rejection_reasons, job.estimate = (
                 JobStatus.REJECTED,

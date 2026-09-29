@@ -58,6 +58,8 @@ class Hifiasm(ToolAdapter[HifiasmParams]):
     input_types = frozenset({DataType.READS_FASTQ})
     output_types = frozenset({DataType.CONTIGS_FASTA})
     params_model = HifiasmParams
+    # ONT needs --ont and Hi-C/UL reads are auxiliary inputs; neither is exposed yet.
+    accepted_read_kinds = frozenset({"pacbio_hifi"})
 
     def param_variants(self) -> list[dict[str, Any]]:
         # Tool default first; then without the 16 GiB bloom filter (slower
