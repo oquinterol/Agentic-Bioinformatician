@@ -10,8 +10,8 @@ Each phase ends with passing tests. No phase assembles a real genome before Phas
 | 3 | Resource inspector (`genome-agent inspect [--json]`) + policy | done |
 | 4 | State models + `init` / `status` | minimal (models + persistence) |
 | 5 | Tool registry: adapter protocol, mock assemblers, `seqkit stats` adapter, feasibility (thread fallback) | done |
-| 6 | Safe executor: `JobSpec` validation, timeout, capture, provenance | next |
-| 7 | Deterministic planner + `genome-agent simulate scenario.yaml` (select / reject / recover) | |
+| 6 | Safe executor: request validation, timeout, capture, provenance (`Harness.run_tool`) | done |
+| 7 | Deterministic planner + `genome-agent simulate scenario.yaml` (select / reject / recover) | next |
 | 8 | `genome-agent tool <name> --json` protocol + Pi extension bridge (`integrations/pi/`) | |
 | 9 | First real workflow on a tiny dataset (seqkit → hifiasm on toy reads) | |
 | 10 | cgroup enforcement, observed peak RAM, estimator calibration | |

@@ -9,7 +9,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from genome_agent.resources.models import ResourcePolicy, SystemResources
+from genome_agent.resources.models import ResourceEstimate, ResourcePolicy, SystemResources
 
 SCHEMA_VERSION = 1
 STATE_DIR = ".genome-agent"
@@ -55,24 +55,34 @@ class JobStatus(StrEnum):
 
 
 class Job(BaseModel):
+    """One requested tool run. Rejected requests are recorded too (benchmarking)."""
+
     id: str
     tool: str
-    argv: list[str]
+    params: dict[str, Any] = Field(default_factory=dict)
+    inputs: list[str] = Field(default_factory=list)
     cpus: int
     ram_gb: float
+    estimate: ResourceEstimate | None = None
+    argv: list[str] = Field(default_factory=list)
+    outdir: str | None = None
     status: JobStatus = JobStatus.PLANNED
+    rejection_reasons: list[str] = Field(default_factory=list)
     exit_code: int | None = None
+    timed_out: bool = False
+    error: str | None = None
     wall_time_s: float | None = None
     stdout_path: str | None = None
     stderr_path: str | None = None
     created_at: datetime = Field(default_factory=_now)
+    finished_at: datetime | None = None
 
 
 class Result(BaseModel):
     job_id: str
     kind: str
     path: str | None = None
-    metrics: dict[str, float] = Field(default_factory=dict)
+    data: dict[str, Any] = Field(default_factory=dict)
 
 
 class DecisionRecord(BaseModel):

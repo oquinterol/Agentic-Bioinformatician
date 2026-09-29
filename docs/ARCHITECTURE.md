@@ -87,10 +87,12 @@ top and can be removed.
 3. The validator checks that:
    - the tool is registered and detected
    - the parameters match the schema
-   - all paths resolve inside the project workspace
-   - the CPU, RAM and disk requests are ≤ budget
-   - the output directory is allowed
-4. The executor runs the command with `subprocess` (no shell) and a timeout. It
+   - input paths exist and are readable. They may be **anywhere** on the filesystem, because
+     using existing local data is the main use case, and they are only ever read.
+   - the output directory is always `<project>/runs/<job_id>/`, chosen by the harness
+   - the CPU, RAM and disk requests are ≤ budget, and the requested RAM is ≥ the adapter's estimated peak
+4. The executor runs the command with `subprocess` (no shell), a timeout, a new
+   process group (a timeout kills children too) and `OMP_NUM_THREADS=cpus`. It
    captures stdout and stderr to files and records the exit code and wall time.
    A non-zero exit is recorded as a failure. Failures are never swallowed.
 5. Every command, and every decision that led to it, is written to state and provenance.

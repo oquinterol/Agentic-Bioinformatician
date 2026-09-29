@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
 from pathlib import Path
 
 
@@ -13,7 +14,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--outdir", type=Path, required=True)
     p.add_argument("--n50", type=int, required=True)
     p.add_argument("--exit-code", type=int, default=0)
+    p.add_argument("--sleep", type=float, default=0.0)
     a = p.parse_args(argv)
+    time.sleep(a.sleep)
     if a.exit_code:
         print(f"mock assembler: simulated failure (exit {a.exit_code})", file=sys.stderr)
         return int(a.exit_code)

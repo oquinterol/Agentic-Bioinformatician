@@ -42,6 +42,7 @@ class MockAssembler(ToolAdapter[MockAssemblerParams]):
         disk_gb: float = 1.0,
         fail_exit_code: int = 0,
         n50: int = 1_000_000,
+        sleep_s: float = 0.0,
     ) -> None:
         self.name = name
         self.executable = sys.executable
@@ -52,6 +53,7 @@ class MockAssembler(ToolAdapter[MockAssemblerParams]):
         self.disk_gb = disk_gb
         self.fail_exit_code = fail_exit_code
         self.n50 = n50
+        self.sleep_s = sleep_s
 
     def is_available(self, res: SystemResources) -> bool:
         return True
@@ -79,6 +81,7 @@ class MockAssembler(ToolAdapter[MockAssemblerParams]):
             "--outdir", str(outdir),
             "--n50", str(self.n50),
             "--exit-code", str(self.fail_exit_code),
+            "--sleep", str(self.sleep_s),
         ]  # fmt: skip
 
     def parse_result(self, outdir: Path) -> dict[str, Any]:
