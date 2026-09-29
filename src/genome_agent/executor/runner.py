@@ -19,6 +19,7 @@ from types import FrameType
 from pydantic import BaseModel
 
 from genome_agent.executor.local import ExecutionResult, LocalExecutor
+from genome_agent.resources.models import SYSTEMD_SCOPE
 
 JOB_SPEC_FILE = "job.json"
 EXECUTION_FILE = "execution.json"
@@ -31,6 +32,20 @@ class JobSpec(BaseModel):
     cpus: int
     ram_gb: float
     timeout_s: float
+    enforcement: str | None = None  # e.g. SYSTEMD_SCOPE; None = advisory limits only
+
+
+def enforced_argv(spec: JobSpec) -> list[str]:
+    """Wrap the command so the kernel enforces the validated reservation."""
+    if spec.enforcement != SYSTEMD_SCOPE:
+        return spec.argv
+    return [
+        "systemd-run", "--user", "--scope", "--quiet", "--collect",
+        "-p", f"MemoryMax={max(1, int(spec.ram_gb * 1024))}M",
+        "-p", "MemorySwapMax=0",
+        "-p", f"CPUQuota={spec.cpus * 100}%",
+        "--", *spec.argv,
+    ]  # fmt: skip
 
 
 def launch(outdir: Path, spec: JobSpec) -> subprocess.Popen[bytes]:
@@ -73,9 +88,17 @@ def main(argv: list[str] | None = None) -> int:
     signal.signal(signal.SIGTERM, on_term)  # first, so an early cancel is never lost
     outdir = Path((argv or sys.argv[1:])[0]).resolve()
     spec = JobSpec.model_validate_json((outdir / JOB_SPEC_FILE).read_text())
-    result = executor.run(spec.argv, outdir, spec.cpus, spec.ram_gb, spec.timeout_s)
+    result = executor.run(enforced_argv(spec), outdir, spec.cpus, spec.ram_gb, spec.timeout_s)
     if executor.cancel_requested:
         result = result.model_copy(update={"cancelled": True, "error": "cancelled on request"})
+    elif spec.enforcement and result.exit_code == -signal.SIGKILL and not result.timed_out:
+        result = result.model_copy(
+            update={
+                "oom_killed": True,
+                "error": f"killed by the kernel under the enforced memory limit "
+                f"({spec.ram_gb:.2f} GB): the job needs more RAM than was reserved",
+            }
+        )
     tmp = outdir / (EXECUTION_FILE + ".tmp")
     tmp.write_text(result.model_dump_json(indent=2))
     tmp.replace(outdir / EXECUTION_FILE)

@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
+
+SYSTEMD_SCOPE = "systemd-user-scope"
 
 
 class GpuInfo(BaseModel):
@@ -42,6 +45,8 @@ class SystemResources(BaseModel):
     tools: dict[str, ToolInfo] = Field(default_factory=dict)
     container_runtimes: list[str] = Field(default_factory=list)
     schedulers: list[str] = Field(default_factory=list)
+    # OS-level limit backends verified to work here, e.g. ["systemd-user-scope"]
+    enforcement: list[str] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)  # non-fatal detection problems
 
 
@@ -51,6 +56,18 @@ class ResourcePolicy(BaseModel):
     ram_fraction: float = Field(default=0.8, gt=0, le=1)
     reserved_threads: int = Field(default=2, ge=0)
     disk_fraction: float = Field(default=0.8, gt=0, le=1)
+    # "auto": enforce limits with systemd if available, else advisory only
+    enforcement: Literal["auto", "none", "systemd"] = "auto"
+
+    def enforcement_backend(self, res: SystemResources) -> str | None:
+        """The backend to use, or None for advisory. Raises if 'systemd' is unavailable."""
+        if self.enforcement == "none":
+            return None
+        if SYSTEMD_SCOPE in res.enforcement:
+            return SYSTEMD_SCOPE
+        if self.enforcement == "systemd":
+            raise ValueError("policy requires systemd enforcement, but it is not available here")
+        return None
 
     def apply(self, res: SystemResources) -> ResourceBudget:
         return ResourceBudget(

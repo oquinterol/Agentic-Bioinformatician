@@ -28,6 +28,7 @@ from genome_agent.resources.models import ResourceEstimate
 
 OBSERVATIONS_FILE = "observations.jsonl"
 DATA_DIR_ENV = "GENOME_AGENT_DATA_DIR"
+OOM_STEP = 1.5
 
 
 def default_data_dir() -> Path:
@@ -50,6 +51,8 @@ class ResourceObservation(BaseModel):
     cpus: int
     input_bytes: int
     estimated_ram_gb: float
+    requested_ram_gb: float | None = None
+    oom_killed: bool = False
     peak_rss_gb: float
     wall_time_s: float | None
     status: str
@@ -58,7 +61,14 @@ class ResourceObservation(BaseModel):
 
     @property
     def ratio(self) -> float:
-        return self.peak_rss_gb / self.estimated_ram_gb if self.estimated_ram_gb > 0 else 0.0
+        """Observed need over estimate. An OOM kill only proves the need exceeded the
+        limit, so it counts as OOM_STEP x the limit (a heuristic step, not a measurement)."""
+        if self.estimated_ram_gb <= 0:
+            return 0.0
+        need = self.peak_rss_gb
+        if self.oom_killed and self.requested_ram_gb:
+            need = max(need, OOM_STEP * self.requested_ram_gb)
+        return need / self.estimated_ram_gb
 
 
 class ObservationStore:

@@ -90,9 +90,12 @@ What protects you instead is the harness:
   adapters never write to input paths.
 - **Outputs only go to the project.** Every job writes to `<project>/runs/<job_id>/`,
   a directory chosen by the harness, not the model.
-- **Resource validation before launch.** CPU/RAM/disk requests are checked
-  against the policy budget; limits are advisory (not OS-enforced) until cgroup
-  support lands.
+- **Resource validation before launch, and kernel enforcement.** CPU, RAM and disk requests are
+  checked against the budget left by running jobs. Where systemd user scopes work (`genome-agent
+  inspect` shows `Limits: systemd-user-scope`), each job runs under `MemoryMax`, `MemorySwapMax=0`
+  and `CPUQuota` equal to its reservation. A job that exceeds its reservation is killed and recorded
+  as OOM, and later estimates for it are raised. Without systemd user scopes the limits are advisory,
+  and `command.sh` says so.
 - **Everything is recorded** in `.genome-agent/state.json` and the append-only
   `.genome-agent/provenance.jsonl`, with a `command.sh` per job.
 

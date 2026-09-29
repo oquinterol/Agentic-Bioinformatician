@@ -69,6 +69,8 @@ class Job(BaseModel):
     outdir: str | None = None
     runner_pid: int | None = None
     cancel_requested: bool = False
+    enforcement: str | None = None  # OS limit backend used, None = advisory
+    oom_killed: bool = False
     status: JobStatus = JobStatus.PLANNED
     rejection_reasons: list[str] = Field(default_factory=list)
     exit_code: int | None = None

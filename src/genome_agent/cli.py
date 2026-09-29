@@ -33,6 +33,7 @@ def render_inspect(res: SystemResources, policy: ResourcePolicy) -> str:
         f"GPU:  {', '.join(g.name for g in res.gpus) or 'none'}",
         f"Containers: {', '.join(res.container_runtimes) or 'none'}",
         f"Schedulers: {', '.join(res.schedulers) or 'none'}",
+        f"Limits:     {', '.join(res.enforcement) or 'advisory only (no cgroup backend)'}",
         "",
         "Detected tools:",
     ]
@@ -74,6 +75,7 @@ def cmd_init(args: argparse.Namespace) -> int:
         ram_fraction=args.ram_fraction,
         reserved_threads=args.reserved_threads,
         disk_fraction=args.disk_fraction,
+        enforcement=args.enforcement,
     )
     state = ProjectState(
         name=project.name, objective=args.objective or "", system_resources=res, policy=policy
@@ -285,6 +287,12 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=d.disk_fraction,
         help="share of free disk jobs may use (default %(default)s)",
+    )
+    s.add_argument(
+        "--enforcement",
+        choices=["auto", "none", "systemd"],
+        default=d.enforcement,
+        help="OS-enforced job limits: auto uses systemd user scopes when available",
     )
     s.set_defaults(func=cmd_init)
 

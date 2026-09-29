@@ -24,7 +24,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from genome_agent.executor.local import ExecutionResult
-from genome_agent.executor.runner import JobSpec, is_runner_alive, launch, read_execution
+from genome_agent.executor.runner import (
+    JobSpec,
+    enforced_argv,
+    is_runner_alive,
+    launch,
+    read_execution,
+)
 from genome_agent.executor.validation import JobRejectedError, JobRequest, validate
 from genome_agent.provenance.log import ProvenanceLog
 from genome_agent.resources.models import ResourceBudget
@@ -133,6 +139,10 @@ class Harness:
             state.jobs.append(job)
             budget, running = self.available_budget()
             try:
+                try:
+                    job.enforcement = state.policy.enforcement_backend(res)
+                except ValueError as exc:
+                    raise JobRejectedError([str(exc)]) from None
                 vj = validate(
                     req,
                     self.registry,
@@ -174,11 +184,21 @@ class Harness:
                 )
             )
             outdir.mkdir(parents=True, exist_ok=True)
-            (outdir / "command.sh").write_text("#!/bin/sh\n" + shlex.join(vj.argv) + "\n")
-            proc = launch(
-                outdir,
-                JobSpec(argv=vj.argv, cpus=req.cpus, ram_gb=req.ram_gb, timeout_s=req.timeout_s),
+            spec = JobSpec(
+                argv=vj.argv,
+                cpus=req.cpus,
+                ram_gb=req.ram_gb,
+                timeout_s=req.timeout_s,
+                enforcement=job.enforcement,
             )
+            wrapper = shlex.join(enforced_argv(spec)[: -len(vj.argv)])
+            limits = (
+                f"# limits enforced by the kernel: {wrapper}\n"
+                if job.enforcement
+                else "# limits were validated but not enforced (advisory)\n"
+            )
+            (outdir / "command.sh").write_text("#!/bin/sh\n" + limits + shlex.join(vj.argv) + "\n")
+            proc = launch(outdir, spec)
             self._children[proc.pid] = proc
             job.runner_pid, job.status = proc.pid, JobStatus.RUNNING
             self.provenance.append("job_started", job_id=job_id, actor=req.actor, argv=vj.argv)
@@ -258,6 +278,8 @@ class Harness:
                 cpus=job.cpus,
                 input_bytes=sum(Path(p).stat().st_size for p in job.inputs if Path(p).exists()),
                 estimated_ram_gb=job.estimate.ram_gb,
+                requested_ram_gb=job.ram_gb,
+                oom_killed=job.oom_killed,
                 peak_rss_gb=job.peak_rss_gb,
                 wall_time_s=job.wall_time_s,
                 status=job.status,
@@ -265,11 +287,13 @@ class Harness:
                 job_id=job.id,
             )
         )
-        if job.peak_rss_gb > job.estimate.ram_gb:
+        if job.oom_killed or job.peak_rss_gb > job.estimate.ram_gb:
             self.provenance.append(
                 "estimate_exceeded",
                 job_id=job.id,
                 estimated_ram_gb=job.estimate.ram_gb,
+                requested_ram_gb=job.ram_gb,
+                oom_killed=job.oom_killed,
                 peak_rss_gb=job.peak_rss_gb,
                 note="future estimates for this tool/params are raised accordingly",
             )
@@ -283,6 +307,7 @@ class Harness:
         )
         job.stdout_path, job.stderr_path = str(r.stdout_path), str(r.stderr_path)
         job.peak_rss_gb = r.peak_rss_gb
+        job.oom_killed = r.oom_killed
         job.finished_at = datetime.now(UTC)
         job.status = JobStatus.FAILED
         if r.cancelled:

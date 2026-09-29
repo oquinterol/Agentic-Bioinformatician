@@ -19,7 +19,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
 
-from genome_agent.resources.models import GpuInfo, SystemResources, ToolInfo
+from genome_agent.resources.models import SYSTEMD_SCOPE, GpuInfo, SystemResources, ToolInfo
 from genome_agent.tools.catalog import (
     BIOINFORMATICS_TOOLS,
     CONTAINER_RUNTIMES,
@@ -127,6 +127,28 @@ def detect_gpus(which: Which = shutil.which, run: Runner = _run) -> tuple[list[G
     return gpus, []
 
 
+SYSTEMD_PROBE = [
+    "systemd-run", "--user", "--scope", "--quiet", "--collect",
+    "-p", "MemoryMax=64M", "-p", "MemorySwapMax=0", "-p", "CPUQuota=100%", "--", "true",
+]  # fmt: skip
+
+
+def detect_enforcement(
+    which: Which = shutil.which, run: Runner = _run
+) -> tuple[list[str], list[str]]:
+    """Verify, by actually trying it, that per-job cgroup limits can be applied."""
+    if not which("systemd-run"):
+        return [], []
+    try:
+        code, out = run(SYSTEMD_PROBE, PROBE_TIMEOUT_S)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return [], [f"systemd-run present but limit probe failed: {exc}"]
+    if code != 0:
+        msg = f"systemd-run user scopes unavailable (exit {code}): {out.strip()[:160]}"
+        return [], [msg + "; resource limits will be advisory"]
+    return [SYSTEMD_SCOPE], []
+
+
 def inspect_system(workspace: Path | None = None) -> SystemResources:
     if platform.system() != "Linux":
         raise UnsupportedPlatformError(
@@ -137,6 +159,7 @@ def inspect_system(workspace: Path | None = None) -> SystemResources:
     cpu_model, physical = parse_cpuinfo(Path("/proc/cpuinfo").read_text())
     tmp = Path(tempfile.gettempdir())
     gpus, notes = detect_gpus()
+    enforcement, enforcement_notes = detect_enforcement()
 
     return SystemResources(
         inspected_at=datetime.now(UTC),
@@ -157,5 +180,6 @@ def inspect_system(workspace: Path | None = None) -> SystemResources:
         tools=detect_tools(BIOINFORMATICS_TOOLS),
         container_runtimes=[r for r in CONTAINER_RUNTIMES if shutil.which(r)],
         schedulers=[s for s in SCHEDULERS if shutil.which(s)],
-        notes=notes,
+        enforcement=enforcement,
+        notes=notes + enforcement_notes,
     )

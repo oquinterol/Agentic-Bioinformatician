@@ -35,6 +35,7 @@ class ExecutionResult(BaseModel):
     stderr_path: Path
     timed_out: bool = False
     cancelled: bool = False
+    oom_killed: bool = False  # killed under an enforced memory limit
     error: str | None = None  # launch failure, timeout or cancellation description
     peak_rss_gb: float | None = None  # observed, from wait4 (None if never started)
 

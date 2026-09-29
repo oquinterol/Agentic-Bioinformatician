@@ -145,9 +145,14 @@ ever raised** from this history: if identical tool+params once exceeded their es
 are multiplied by the worst ratio, rounded up. They are never lowered, because small runs cannot justify
 lower memory for large inputs. `genome-agent calibration` reports estimate accuracy per tool and params.
 
-Enforcement is currently **advisory** (validation before launch). The `Executor`
-interface will accept `systemd-run --scope -p MemoryMax=… -p CPUQuota=…` or
-container limits without API changes.
+### Enforcement
+
+`ResourcePolicy.enforcement` is `auto`, `none` or `systemd`. `inspect` verifies, by running a probe,
+that `systemd-run --user --scope` can apply limits. When it can, the runner wraps each tool in a
+transient scope with `MemoryMax` set to the reserved RAM, `MemorySwapMax=0` and `CPUQuota` set to
+`cpus`×100 %. A SIGKILL under enforcement is recorded as `oom_killed`. Its observation counts as
+needing at least 1.5× the failed limit, which is a heuristic step, so a replan requests more.
+`auto` falls back to advisory limits and notes it. `systemd` refuses to run without them.
 
 ## 5. State model
 
