@@ -1,0 +1,29 @@
+# Design scenario 1: the preferred assembler does not fit; pick the one that does.
+name = "simple_assembly"
+description = "Best contig assembly of a ~800 Mbp diploid plant on a small workstation"
+expect = "achieved"
+expect_tool = "assembler_B"
+
+[machine]
+cpu_threads = 8
+ram_available_gb = 8
+disk_free_gb = 40
+
+[context]
+species = "Solanum tuberosum Group Phureja"
+expected_ploidy = 2
+genome_size_bp = 800_000_000
+
+[[datasets]]
+name = "hifi_reads"
+kind = "pacbio_hifi"
+
+# Tool order = preference. assembler_A needs 32 GB and cannot fit in 6.4 GB.
+[[tools]]
+name = "assembler_A"
+base_ram_gb = 32
+
+[[tools]]
+name = "assembler_B"
+base_ram_gb = 2
+ram_gb_per_gbp = 5  # 2 + 4 = 6 GB for 0.8 Gbp

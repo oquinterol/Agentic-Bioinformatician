@@ -1,0 +1,27 @@
+# Design scenario 2: nothing fits; stop gracefully and explain why.
+name = "impossible"
+description = "Large genome on a laptop-class machine"
+expect = "stopped"
+
+[machine]
+cpu_threads = 4
+ram_available_gb = 8
+disk_free_gb = 40
+
+[context]
+genome_size_bp = 3_100_000_000
+
+[[datasets]]
+name = "hifi_reads"
+kind = "pacbio_hifi"
+
+[[tools]]
+name = "assembler_A"
+base_ram_gb = 4
+ram_gb_per_gbp = 10  # ~35 GB for 3.1 Gbp
+
+[[tools]]
+name = "assembler_B"
+base_ram_gb = 2
+ram_gb_per_gbp = 2     # 2 + 6.2 = 8.2 GB for 3.1 Gbp ...
+ram_gb_per_thread = 3  # ... + 3 per thread: 11.2 GB even at 1 thread

@@ -1,4 +1,4 @@
-"""Command-line entry point: `genome-agent inspect | init | status`."""
+"""Command-line entry point: `genome-agent inspect | init | status | simulate`."""
 
 from __future__ import annotations
 
@@ -106,6 +106,47 @@ def cmd_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_simulate(args: argparse.Namespace) -> int:
+    import tempfile
+
+    from genome_agent.agent.simulation import Scenario, simulate
+
+    sc = Scenario.load(Path(args.scenario))
+    project = Path(args.project) if args.project else Path(tempfile.mkdtemp(prefix="ga-sim-"))
+    outcome, harness = simulate(sc, project.resolve())
+    state = harness.state
+    budget = state.policy.apply(state.system_resources) if state.system_resources else None
+    print(f"Scenario:  {sc.name} — {sc.description}")
+    if budget:
+        print(
+            f"Budget:    {budget.cpu_threads} threads, {budget.ram_gb:.1f} GB RAM, "
+            f"{budget.disk_gb:.0f} GB disk"
+        )
+    print()
+    jobs = {j.id: j for j in state.jobs}
+    for d in state.decisions:
+        print(f"[{d.actor}] {d.decision}: {d.reason}")
+        job = jobs.get(str(d.evidence.get("job_id", "")))
+        if job:
+            print(
+                f"    -> {job.id}: {job.status}"
+                + (f" (exit {job.exit_code})" if job.exit_code else "")
+            )
+    for tool, why in state.decisions[-1].evidence.get("rejected", {}).items():
+        print(f"    x {tool}: {'; '.join(why)}")
+    print()
+    print(f"Outcome:   {'ACHIEVED' if outcome.achieved else 'STOPPED'} — {outcome.reason}")
+    print(
+        f"Agent:     {outcome.iterations} iterations, {outcome.replans} replans, "
+        f"{outcome.jobs_failed} failed, {outcome.jobs_rejected} rejected"
+    )
+    print(f"Project:   {project}")
+    problems = sc.check(outcome, harness)
+    for p in problems:
+        print(f"MISMATCH:  {p}", file=sys.stderr)
+    return 1 if problems else 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="genome-agent", description=__doc__)
     p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
@@ -120,6 +161,11 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("path")
     s.add_argument("--objective", help="scientific objective, free text")
     s.set_defaults(func=cmd_init)
+
+    s = sub.add_parser("simulate", help="run a mock scenario with the deterministic planner")
+    s.add_argument("scenario", help="scenario TOML file (see examples/)")
+    s.add_argument("--project", help="keep the simulated project here (default: temp dir)")
+    s.set_defaults(func=cmd_simulate)
 
     s = sub.add_parser("status", help="summarise project state")
     s.add_argument("path", nargs="?", default=".")

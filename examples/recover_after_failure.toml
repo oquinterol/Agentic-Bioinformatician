@@ -1,0 +1,26 @@
+# Design scenario 3: the chosen assembler crashes; record it and replan.
+name = "recover_after_failure"
+description = "Assembler crash followed by recovery with an alternative"
+expect = "achieved"
+expect_tool = "assembler_C"
+
+[machine]
+cpu_threads = 16
+ram_available_gb = 60
+disk_free_gb = 300
+
+[context]
+genome_size_bp = 800_000_000
+
+[[datasets]]
+name = "hifi_reads"
+kind = "pacbio_hifi"
+
+[[tools]]
+name = "assembler_B"
+base_ram_gb = 6
+fail_exit_code = 1
+
+[[tools]]
+name = "assembler_C"
+base_ram_gb = 10

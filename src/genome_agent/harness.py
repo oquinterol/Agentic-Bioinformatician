@@ -38,6 +38,14 @@ class Harness:
     def _save(self) -> None:
         self.state.save(self.project_dir)
 
+    def record_decision(self, decision: DecisionRecord) -> None:
+        """Record a decision that does not launch a job (e.g. stop, replan)."""
+        self.state.decisions.append(decision)
+        self.provenance.append(
+            "decision", decision=decision.decision, actor=decision.actor, reason=decision.reason
+        )
+        self._save()
+
     def run_tool(self, req: JobRequest) -> Job:
         res = self.state.system_resources
         assert res is not None
@@ -75,6 +83,7 @@ class Harness:
                 reason=req.reason,
                 actor=req.actor,
                 evidence={
+                    **req.evidence,
                     "job_id": job_id,
                     "inputs": req.inputs,
                     "estimate": vj.estimate.model_dump(),

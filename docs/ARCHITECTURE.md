@@ -61,7 +61,8 @@ planners, used in tests and simulations, and LLM backends are interchangeable.
 | `tools/` | Tool registry: probes, adapters (command builder, estimator, parser) | resources |
 | `executor/` | Runs a validated `JobSpec`: timeout, capture, exit code, wall time | tools, state |
 | `provenance/` | Append-only decision and command log | state |
-| `agent/` | `AgentBackend` protocol, deterministic planner, OBSERVE→…→REPLAN loop | all above |
+| `agent/` | `AgentBackend` protocol (Observation → RunTool / Stop), `DeterministicPlanner`, `run_loop`, TOML scenarios | all above |
+| `harness.py` | `Harness.run_tool` / `record_decision`: the only path to execution | all above |
 | `cli.py` | `inspect`, `init`, `status` (later `simulate`, `tool`) | all above |
 
 Rule: `resources/` and `state/` never import from `agent/`. The LLM layer sits on

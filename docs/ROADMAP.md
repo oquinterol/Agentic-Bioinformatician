@@ -11,13 +11,13 @@ Each phase ends with passing tests. No phase assembles a real genome before Phas
 | 4 | State models + `init` / `status` | minimal (models + persistence) |
 | 5 | Tool registry: adapter protocol, mock assemblers, `seqkit stats` adapter, feasibility (thread fallback) | done |
 | 6 | Safe executor: request validation, timeout, capture, provenance (`Harness.run_tool`) | done |
-| 7 | Deterministic planner + `genome-agent simulate scenario.yaml` (select / reject / recover) | next |
-| 8 | `genome-agent tool <name> --json` protocol + Pi extension bridge (`integrations/pi/`) | |
+| 7 | Deterministic planner, agent loop, `genome-agent simulate scenario.toml` (select / reject / recover) | done |
+| 8 | `genome-agent tool <name> --json` protocol + Pi extension bridge (`integrations/pi/`) | next |
 | 9 | First real workflow on a tiny dataset (seqkit → hifiasm on toy reads) | |
 | 10 | cgroup enforcement, observed peak RAM, estimator calibration | |
 | 11 | Benchmark harness: same scenario × N models | |
 
-## Phase 7 acceptance scenarios
+## Phase 7 acceptance scenarios (`examples/*.toml`, all covered by tests)
 
 1. The machine has 8 GB of RAM. `assembler_A` needs 32 GB and `assembler_B` needs 6 GB. → The agent chooses B and records a decision that rejects A.
 2. Every candidate exceeds the budget. → The agent stops gracefully and gives an explanation.

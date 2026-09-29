@@ -20,6 +20,7 @@ python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'
 .venv/bin/genome-agent inspect --json     # same, machine-readable
 .venv/bin/genome-agent init example_project --objective "best chromosome-scale assembly"
 .venv/bin/genome-agent status example_project
+.venv/bin/genome-agent simulate examples/simple_assembly.toml   # mock scenario, no genome needed
 .venv/bin/pytest && .venv/bin/ruff check src tests && .venv/bin/mypy src
 ```
 
