@@ -85,6 +85,7 @@ class DecisionArgs(_Args):
 class DatasetArgs(_Args):
     path: str
     kind: ReadKind
+    species: str | None = None
 
 
 class JobArgs(_Args):
@@ -201,10 +202,13 @@ def assess_tool(h: Harness, a: AssessArgs, actor: str) -> dict[str, Any]:
         raise BridgeError(f"invalid params for {a.tool}: {exc.errors()}") from None
     tool_inputs = ToolInputs.from_files(
         [Path(p) for p in inputs],
+        {d.path: str(d.kind) for d in h.state.datasets},
         genome_size_bp=genome_size,
         read_bases=h.state.measured_read_bases(inputs),
     )
     budget, _ = h.available_budget()
+    if problems := adapter.check_inputs(tool_inputs):
+        raise BridgeError("; ".join(problems))
     result = assess(adapter, tool_inputs, params, budget, h.observations)
     return result.model_dump() | {
         "available": adapter.is_available(h.state.system_resources),
@@ -283,11 +287,13 @@ def add_dataset(h: Harness, a: DatasetArgs, actor: str) -> dict[str, Any]:
     with h.transaction() as state:
         if str(p) in {d.path for d in state.datasets}:
             raise BridgeError(f"dataset already registered: {p}")
-        state.datasets.append(Dataset(path=str(p), kind=a.kind, size_bytes=p.stat().st_size))
+        state.datasets.append(
+            Dataset(path=str(p), kind=a.kind, species=a.species, size_bytes=p.stat().st_size)
+        )
     h.record_decision(
         DecisionRecord(
             decision="add_dataset",
-            reason=f"registered {a.kind} reads",
+            reason=f"registered {a.kind} dataset" + (f" ({a.species})" if a.species else ""),
             evidence={"path": str(p)},
             actor=actor,
         )

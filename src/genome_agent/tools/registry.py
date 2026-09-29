@@ -27,6 +27,7 @@ class DataType(StrEnum):
     READ_STATS = "read_stats"
     CONTIGS_FASTA = "contigs_fasta"
     ASSEMBLY_METRICS = "assembly_metrics"
+    READ_ORIGIN = "read_origin"
 
 
 class ToolParams(BaseModel):
@@ -43,11 +44,19 @@ class ToolInputs:
     input_bytes: int
     genome_size_bp: int | None = None
     read_bases: int | None = None
+    kinds: tuple[str | None, ...] = ()  # dataset kind per file (None = unregistered)
 
     @classmethod
-    def from_files(cls, files: list[Path], **kw: Any) -> ToolInputs:
+    def from_files(
+        cls, files: list[Path], datasets: dict[str, str] | None = None, **kw: Any
+    ) -> ToolInputs:
+        """`datasets` (path -> kind) fills `kinds` for registered files."""
         paths = tuple(f.resolve() for f in files)
-        return cls(files=paths, input_bytes=sum(p.stat().st_size for p in paths), **kw)
+        kinds = tuple((datasets or {}).get(str(p)) for p in paths)
+        return cls(files=paths, input_bytes=sum(p.stat().st_size for p in paths), kinds=kinds, **kw)
+
+    def of_kind(self, *kinds: str) -> list[Path]:
+        return [f for f, k in zip(self.files, self.kinds, strict=False) if k in kinds]
 
 
 class EstimationError(ValueError):
@@ -70,6 +79,10 @@ class ToolAdapter[P: ToolParams](ABC):
 
     def parse_params(self, raw: dict[str, Any]) -> P:
         return self.params_model.model_validate(raw)
+
+    def check_inputs(self, inputs: ToolInputs) -> list[str]:
+        """Problems with this combination of inputs (e.g. 'needs one reference'); [] = ok."""
+        return []
 
     def param_variants(self) -> list[dict[str, Any]]:
         """Parameter sets to try, most preferred first. Later entries trade speed
@@ -148,6 +161,7 @@ class ToolRegistry:
 
 def default_registry() -> ToolRegistry:
     from genome_agent.tools.adapters.hifiasm import Hifiasm
+    from genome_agent.tools.adapters.origin import ReadOriginCheck
     from genome_agent.tools.adapters.seqkit import SeqkitStats
 
-    return ToolRegistry([Hifiasm(), SeqkitStats()])
+    return ToolRegistry([Hifiasm(), SeqkitStats(), ReadOriginCheck()])

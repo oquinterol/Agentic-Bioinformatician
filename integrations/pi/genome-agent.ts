@@ -136,11 +136,14 @@ const TOOLS: {
 		name: "add_dataset",
 		label: "Add dataset",
 		description:
-			"Register an existing sequencing file (anywhere on this machine, read-only) as a project dataset.",
+			"Register an existing sequencing file or reference FASTA (anywhere on this machine, read-only) as a project dataset. The species is recorded as documented, not verified.",
 		snippet: "Register an existing reads file as a project dataset",
 		parameters: Type.Object({
 			path: Type.String({ description: "Path to an existing, readable file" }),
-			kind: StringEnum(["pacbio_hifi", "ont", "illumina", "hic", "rnaseq", "other"] as const),
+			kind: StringEnum(
+				["pacbio_hifi", "ont", "illumina", "hic", "rnaseq", "reference_fasta", "other"] as const,
+			),
+			species: Type.Optional(Type.String({ description: "Species as documented" })),
 		}),
 	},
 	{

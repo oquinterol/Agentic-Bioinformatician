@@ -104,7 +104,11 @@ def validate(
         ]
         if wrong:
             raise JobRejectedError(wrong)
-    inputs = ToolInputs.from_files(paths, genome_size_bp=req.genome_size_bp, read_bases=read_bases)
+    inputs = ToolInputs.from_files(
+        paths, datasets, genome_size_bp=req.genome_size_bp, read_bases=read_bases
+    )
+    if problems := adapter.check_inputs(inputs):
+        raise JobRejectedError(problems)
 
     try:
         est = corrected_estimate(adapter, inputs, params, req.cpus, observations)

@@ -7,6 +7,10 @@ Policy (deliberately simple — scientific judgement is the LLM's job later):
 3. assess each remaining one against the budget (with thread fallback);
    each adapter's param_variants() are tried in order (e.g. hifiasm -f0);
 4. run the first that fits; if none fits, stop and explain every rejection.
+
+Knowledge-gap rule: if a reference is registered and read_origin_check is
+available, reads that an assembler would use are checked first, and reads
+whose verdict is "does not match reference" are never assembled.
 """
 
 from __future__ import annotations
@@ -15,9 +19,9 @@ from pathlib import Path
 
 from genome_agent.agent.backend import AgentAction, Observation, RunTool, Stop
 from genome_agent.executor.validation import JobRequest
-from genome_agent.state.models import JobStatus
+from genome_agent.state.models import JobStatus, ProjectState
 from genome_agent.tools.feasibility import assess
-from genome_agent.tools.registry import ToolInputs
+from genome_agent.tools.registry import AnyAdapter, ToolInputs
 
 
 class DeterministicPlanner:
@@ -39,6 +43,13 @@ class DeterministicPlanner:
         if missing := [d.path for d in state.datasets if not Path(d.path).is_file()]:
             return Stop("dataset files are missing", evidence={"missing": missing})
         datasets = {d.path: str(d.kind) for d in state.datasets}
+        verdicts = origin_verdicts(state)
+        if (
+            check := self._origin_check_first(obs, candidates, datasets, verdicts, spent)
+        ) is not None:
+            return check
+        excluded = {p: v for p, v in verdicts.items() if v == MISMATCH}
+        datasets = {p: k for p, k in datasets.items() if p not in excluded}
         rejected: dict[str, list[str]] = {
             j.tool: [
                 f"previous attempt {j.id} {j.status}: "
@@ -58,6 +69,7 @@ class DeterministicPlanner:
                 continue
             inputs = ToolInputs.from_files(
                 [Path(p) for p in selected],
+                datasets,
                 genome_size_bp=state.biological_context.genome_size_bp,
                 read_bases=state.measured_read_bases(selected),
             )
@@ -89,6 +101,7 @@ class DeterministicPlanner:
                     ),
                     alternatives_considered=others,
                     evidence={
+                        "excluded_by_origin_check": excluded,
                         "rejected_alternatives": rejected,
                         "rejected_variants": reasons,
                         "estimate_basis": a.estimate.basis,
@@ -102,9 +115,68 @@ class DeterministicPlanner:
             evidence={"rejected": rejected, "budget": obs.budget.model_dump()},
         )
 
+    def _origin_check_first(
+        self,
+        obs: Observation,
+        candidates: list[AnyAdapter],
+        datasets: dict[str, str],
+        verdicts: dict[str, str],
+        spent: set[str],
+    ) -> AgentAction | None:
+        res = obs.state.system_resources
+        assert res is not None
+        refs = [p for p, k in datasets.items() if k == "reference_fasta"]
+        if len(refs) != 1 or ORIGIN_TOOL in spent or ORIGIN_TOOL not in obs.registry.names():
+            return None
+        checker = obs.registry.get(ORIGIN_TOOL)
+        if not checker.is_available(res):
+            return None
+        to_check = sorted(
+            {
+                p
+                for a in candidates
+                for p in a.select_inputs(datasets)
+                if datasets[p] != "reference_fasta"
+            }
+            - set(verdicts)
+        )
+        if not to_check:
+            return None
+        files = [refs[0], *to_check]
+        inputs = ToolInputs.from_files([Path(p) for p in files], datasets)
+        a = assess(checker, inputs, checker.parse_params({}), obs.budget, obs.observations)
+        if not a.fits or a.estimate is None:
+            return None  # cannot check here; assembling proceeds on documented metadata
+        return RunTool(
+            JobRequest(
+                tool=ORIGIN_TOOL,
+                inputs=files,
+                cpus=a.estimate.cpus,
+                ram_gb=a.estimate.ram_gb,
+                reason="verify that the reads come from the organism of the registered reference "
+                "before assembling them (dataset metadata is not verified)",
+                evidence={"unchecked_reads": to_check, "reference": refs[0]},
+                actor=self.name,
+            )
+        )
+
 
 def _reason(tool: str, obs: Observation, rejected: dict[str, list[str]]) -> str:
     text = f"{tool} is the most preferred tool producing '{obs.goal}' that fits the budget"
     if rejected:
         text += "; skipped: " + "; ".join(f"{t} ({', '.join(r)})" for t, r in rejected.items())
     return text
+
+
+MISMATCH = "does not match reference"
+ORIGIN_TOOL = "read_origin_check"
+
+
+def origin_verdicts(state: ProjectState) -> dict[str, str]:
+    """Latest read_origin_check verdict per reads file."""
+    out: dict[str, str] = {}
+    for r in state.results:
+        if r.kind == "read_origin":
+            for f, v in r.data.get("files", {}).items():
+                out[f] = v.get("verdict", "unknown")
+    return out

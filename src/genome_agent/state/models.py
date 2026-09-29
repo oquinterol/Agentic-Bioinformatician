@@ -26,6 +26,7 @@ class ReadKind(StrEnum):
     ILLUMINA = "illumina"
     HIC = "hic"
     RNASEQ = "rnaseq"
+    REFERENCE = "reference_fasta"  # an assembly/reference used for checks, not reads
     OTHER = "other"
 
 
@@ -42,6 +43,7 @@ class BiologicalContext(BaseModel):
 class Dataset(BaseModel):
     path: str
     kind: ReadKind
+    species: str | None = None  # as documented by the user; verify with read_origin_check
     size_bytes: int | None = None
     stats: dict[str, Any] = Field(default_factory=dict)
 

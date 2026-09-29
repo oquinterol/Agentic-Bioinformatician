@@ -208,7 +208,10 @@ def cmd_add_dataset(args: argparse.Namespace) -> int:
     from genome_agent.bridge import call
 
     resp = call(
-        Path(args.project).resolve(), "add_dataset", {"path": args.path, "kind": args.kind}, "user"
+        Path(args.project).resolve(),
+        "add_dataset",
+        {"path": args.path, "kind": args.kind, "species": args.species},
+        "user",
     )
     if not resp["ok"]:
         print(f"error: {resp['error']}", file=sys.stderr)
@@ -217,17 +220,29 @@ def cmd_add_dataset(args: argparse.Namespace) -> int:
     return 0
 
 
-def _plan_dry_run(harness: Harness, goal: DataType) -> int:
-    """Record what the deterministic planner would run, without running it."""
+def _plan_dry_run(harness: Harness, goal: DataType, max_iterations: int = 10) -> int:
+    """Run allowed preparatory steps (e.g. origin checks); record, not run, blocked tools.
+
+    Without blocked tools, the first proposed run is recorded as the plan.
+    """
     from genome_agent.agent.backend import Observation, RunTool
     from genome_agent.agent.planner import DeterministicPlanner
 
     planner = DeterministicPlanner()
-    budget, _ = harness.available_budget()
-    obs = Observation(harness.state, harness.registry, budget, goal, harness.observations)
-    action = planner.next_action(obs)
-    if isinstance(action, RunTool):
+    for _ in range(max_iterations):
+        budget, _ = harness.available_budget()
+        obs = Observation(harness.state, harness.registry, budget, goal, harness.observations)
+        action = planner.next_action(obs)
+        if not isinstance(action, RunTool):
+            decision = DecisionRecord(
+                decision="stop", reason=action.reason, actor=planner.name, evidence=action.evidence
+            )
+            break
         req = action.request
+        if harness.state.blocked_tools and req.tool not in harness.state.blocked_tools:
+            job = harness.run_tool(req)
+            print(f"ran {job.id}: {job.status}")
+            continue
         decision = DecisionRecord(
             decision="assembly_plan",
             reason=req.reason,
@@ -235,9 +250,10 @@ def _plan_dry_run(harness: Harness, goal: DataType) -> int:
             evidence={"plan": req.model_dump(exclude={"actor", "reason"}), "dry_run": True},
             alternatives_considered=req.alternatives_considered,
         )
+        break
     else:
         decision = DecisionRecord(
-            decision="stop", reason=action.reason, actor=planner.name, evidence=action.evidence
+            decision="stop", reason="iteration limit in dry run", actor=planner.name
         )
     harness.record_decision(decision)
     print(json.dumps(decision.model_dump(mode="json"), indent=2))
@@ -390,6 +406,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("project")
     s.add_argument("path")
     s.add_argument("--kind", required=True, choices=[k.value for k in ReadKind])
+    s.add_argument("--species", help="species as documented (it is not verified)")
     s.set_defaults(func=cmd_add_dataset)
 
     s = sub.add_parser("plan", help="run the deterministic planner on a project")
