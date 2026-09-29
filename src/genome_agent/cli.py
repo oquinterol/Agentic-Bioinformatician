@@ -293,10 +293,26 @@ def cmd_calibration(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_compare(args: argparse.Namespace) -> int:
+    from genome_agent.benchmark import render, summarize
+
+    summaries = [summarize(Path(p).resolve()) for p in args.projects]
+    if args.json:
+        print(json.dumps([s.model_dump(mode="json") for s in summaries], indent=2))
+    else:
+        print(render(summaries))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="genome-agent", description=__doc__)
     p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     sub = p.add_subparsers(dest="command", required=True)
+
+    s = sub.add_parser("compare", help="compare agent runs recorded in several projects")
+    s.add_argument("projects", nargs="+")
+    s.add_argument("--json", action="store_true")
+    s.set_defaults(func=cmd_compare)
 
     s = sub.add_parser("calibration", help="estimated vs. observed RAM on this machine")
     s.add_argument("--json", action="store_true")
