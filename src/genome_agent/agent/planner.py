@@ -59,6 +59,7 @@ class DeterministicPlanner:
             inputs = ToolInputs.from_files(
                 [Path(p) for p in selected],
                 genome_size_bp=state.biological_context.genome_size_bp,
+                read_bases=state.measured_read_bases(selected),
             )
             chosen, reasons = None, []
             for raw in adapter.param_variants():

@@ -139,6 +139,10 @@ class Harness:
             state.jobs.append(job)
             budget, running = self.available_budget()
             try:
+                if req.tool in state.blocked_tools:
+                    raise JobRejectedError(
+                        [f"{req.tool} is blocked in this project (blocked_tools)"]
+                    )
                 try:
                     job.enforcement = state.policy.enforcement_backend(res)
                 except ValueError as exc:
@@ -151,6 +155,7 @@ class Harness:
                     outdir,
                     datasets={d.path: d.kind for d in state.datasets},
                     observations=self.observations,
+                    read_bases=state.measured_read_bases(req.inputs),
                 )
             except JobRejectedError as exc:
                 reasons = exc.reasons

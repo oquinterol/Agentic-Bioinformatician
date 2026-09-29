@@ -118,6 +118,22 @@ class ProjectState(BaseModel):
     decisions: list[DecisionRecord] = Field(default_factory=list)
     failures: list[str] = Field(default_factory=list)
     artifacts: list[str] = Field(default_factory=list)
+    # Tools the harness must refuse to run in this project (e.g. decision-only benchmarks)
+    blocked_tools: list[str] = Field(default_factory=list)
+
+    def measured_read_bases(self, paths: list[str]) -> int | None:
+        """Total bases of `paths` if a read_stats result measured every one of them."""
+        per_file: dict[str, int] = {}
+        for r in self.results:
+            if r.kind != "read_stats":
+                continue
+            for f, stats in r.data.get("files", {}).items():
+                if isinstance(stats, dict) and isinstance(stats.get("sum_len"), int):
+                    per_file[str(Path(f).resolve())] = stats["sum_len"]
+        resolved = [str(Path(p).resolve()) for p in paths]
+        if not resolved or any(p not in per_file for p in resolved):
+            return None
+        return sum(per_file[p] for p in resolved)
 
     @staticmethod
     def path_for(project_dir: Path) -> Path:

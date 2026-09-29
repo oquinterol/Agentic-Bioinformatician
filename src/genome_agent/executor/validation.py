@@ -75,6 +75,7 @@ def validate(
     outdir: Path,
     datasets: dict[str, str] | None = None,
     observations: ObservationStore | None = None,
+    read_bases: int | None = None,
 ) -> ValidatedJob:
     """`datasets` maps registered dataset paths to their kind (ReadKind value);
     `observations` raises estimates that past identical runs exceeded."""
@@ -103,7 +104,7 @@ def validate(
         ]
         if wrong:
             raise JobRejectedError(wrong)
-    inputs = ToolInputs.from_files(paths, genome_size_bp=req.genome_size_bp)
+    inputs = ToolInputs.from_files(paths, genome_size_bp=req.genome_size_bp, read_bases=read_bases)
 
     try:
         est = corrected_estimate(adapter, inputs, params, req.cpus, observations)

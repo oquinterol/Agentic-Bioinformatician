@@ -143,6 +143,7 @@ def project_status(h: Harness, _: NoArgs, actor: str) -> dict[str, Any]:
         "objective": s.objective,
         "biological_context": s.biological_context.model_dump(),
         "datasets": [d.model_dump() for d in s.datasets],
+        "blocked_tools": s.blocked_tools,
         "budget": _budget(h),
         "jobs": [
             j.model_dump(
@@ -187,10 +188,17 @@ def assess_tool(h: Harness, a: AssessArgs, actor: str) -> dict[str, Any]:
         params = adapter.parse_params(a.params)
     except ValidationError as exc:
         raise BridgeError(f"invalid params for {a.tool}: {exc.errors()}") from None
-    tool_inputs = ToolInputs.from_files([Path(p) for p in inputs], genome_size_bp=genome_size)
+    tool_inputs = ToolInputs.from_files(
+        [Path(p) for p in inputs],
+        genome_size_bp=genome_size,
+        read_bases=h.state.measured_read_bases(inputs),
+    )
     budget, _ = h.available_budget()
     result = assess(adapter, tool_inputs, params, budget, h.observations)
-    return result.model_dump() | {"available": adapter.is_available(h.state.system_resources)}
+    return result.model_dump() | {
+        "available": adapter.is_available(h.state.system_resources),
+        "blocked_in_project": a.tool in h.state.blocked_tools,
+    }
 
 
 def _job_view(h: Harness, job_id: str) -> dict[str, Any]:

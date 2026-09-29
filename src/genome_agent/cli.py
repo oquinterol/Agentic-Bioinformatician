@@ -8,9 +8,11 @@ import sys
 from pathlib import Path
 
 from genome_agent import __version__
+from genome_agent.harness import Harness
 from genome_agent.resources.inspector import inspect_system
 from genome_agent.resources.models import ResourcePolicy, SystemResources
-from genome_agent.state.models import DecisionRecord, ProjectState, ReadKind
+from genome_agent.state.models import BiologicalContext, DecisionRecord, ProjectState, ReadKind
+from genome_agent.tools.registry import DataType
 
 PROJECT_SUBDIRS = ("data", "runs", "results")
 
@@ -78,7 +80,17 @@ def cmd_init(args: argparse.Namespace) -> int:
         enforcement=args.enforcement,
     )
     state = ProjectState(
-        name=project.name, objective=args.objective or "", system_resources=res, policy=policy
+        name=project.name,
+        objective=args.objective or "",
+        system_resources=res,
+        policy=policy,
+        biological_context=BiologicalContext(
+            species=args.species,
+            organism_type=args.organism_type,
+            expected_ploidy=args.ploidy,
+            genome_size_bp=args.genome_size,
+        ),
+        blocked_tools=args.block_tool or [],
     )
     state.decisions.append(
         DecisionRecord(
@@ -205,6 +217,33 @@ def cmd_add_dataset(args: argparse.Namespace) -> int:
     return 0
 
 
+def _plan_dry_run(harness: Harness, goal: DataType) -> int:
+    """Record what the deterministic planner would run, without running it."""
+    from genome_agent.agent.backend import Observation, RunTool
+    from genome_agent.agent.planner import DeterministicPlanner
+
+    planner = DeterministicPlanner()
+    budget, _ = harness.available_budget()
+    obs = Observation(harness.state, harness.registry, budget, goal, harness.observations)
+    action = planner.next_action(obs)
+    if isinstance(action, RunTool):
+        req = action.request
+        decision = DecisionRecord(
+            decision="assembly_plan",
+            reason=req.reason,
+            actor=planner.name,
+            evidence={"plan": req.model_dump(exclude={"actor", "reason"}), "dry_run": True},
+            alternatives_considered=req.alternatives_considered,
+        )
+    else:
+        decision = DecisionRecord(
+            decision="stop", reason=action.reason, actor=planner.name, evidence=action.evidence
+        )
+    harness.record_decision(decision)
+    print(json.dumps(decision.model_dump(mode="json"), indent=2))
+    return 0
+
+
 def cmd_plan(args: argparse.Namespace) -> int:
     from genome_agent.agent.loop import run_loop
     from genome_agent.agent.planner import DeterministicPlanner
@@ -214,6 +253,8 @@ def cmd_plan(args: argparse.Namespace) -> int:
 
     project = Path(args.project).resolve()
     harness = Harness(project, load_registry(project))
+    if args.dry_run:
+        return _plan_dry_run(harness, DataType(args.goal))
     n_decisions = len(harness.state.decisions)
     outcome = run_loop(harness, DeterministicPlanner(), DataType(args.goal), args.max_iterations)
     jobs = {j.id: j for j in harness.state.jobs}
@@ -288,6 +329,15 @@ def build_parser() -> argparse.ArgumentParser:
         default=d.disk_fraction,
         help="share of free disk jobs may use (default %(default)s)",
     )
+    s.add_argument("--species")
+    s.add_argument("--organism-type")
+    s.add_argument("--ploidy", type=int)
+    s.add_argument("--genome-size", type=int, help="expected haploid genome size (bp)")
+    s.add_argument(
+        "--block-tool",
+        action="append",
+        help="tool the harness must refuse to run in this project (repeatable)",
+    )
     s.add_argument(
         "--enforcement",
         choices=["auto", "none", "systemd"],
@@ -330,6 +380,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("project", nargs="?", default=".")
     s.add_argument("--goal", default="contigs_fasta")
     s.add_argument("--max-iterations", type=int, default=10)
+    s.add_argument("--dry-run", action="store_true", help="record the plan, run nothing")
     s.set_defaults(func=cmd_plan)
 
     s = sub.add_parser("status", help="summarise project state")
