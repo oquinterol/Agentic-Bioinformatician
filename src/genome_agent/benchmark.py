@@ -40,12 +40,29 @@ def _plan_decision(state: ProjectState) -> Any:
 
 
 def _extract_plan(evidence: dict[str, Any]) -> dict[str, Any] | None:
-    """Plans are recorded by different actors; accept the common shapes."""
-    plan = evidence.get("plan", evidence)
-    if not isinstance(plan, dict) or "tool" not in plan:
-        return None
+    """Plans are recorded by different actors; accept the common shapes.
+
+    Preferred: evidence["plan"] (typed via record_decision's `plan`). Also
+    accepted: top-level keys, or "chosen_*" keys with a resources dict.
+    """
     keys = ("tool", "params", "inputs", "cpus", "ram_gb")
-    return {k: plan.get(k) for k in keys}
+    plan = evidence.get("plan")
+    if isinstance(plan, dict) and "tool" in plan:
+        return {k: plan.get(k) for k in keys}
+    if "tool" in evidence:
+        return {k: evidence.get(k) for k in keys}
+    if "chosen_tool" in evidence:
+        resources: dict[str, Any] = next(
+            (v for k, v in evidence.items() if k.startswith("chosen_resources")), {}
+        )
+        return {
+            "tool": evidence["chosen_tool"],
+            "params": evidence.get("chosen_params"),
+            "inputs": evidence.get("chosen_inputs"),
+            "cpus": resources.get("cpus"),
+            "ram_gb": resources.get("ram_gb"),
+        }
+    return None
 
 
 def summarize(project_dir: Path) -> RunSummary:

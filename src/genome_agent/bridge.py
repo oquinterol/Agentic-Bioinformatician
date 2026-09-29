@@ -64,11 +64,22 @@ class RunArgs(AssessArgs):
     evidence: dict[str, Any] = Field(default_factory=dict)
 
 
+class PlanSpec(_Args):
+    """A run the agent intends (or would) launch; typed so plans are comparable."""
+
+    tool: str
+    params: dict[str, Any] = Field(default_factory=dict)
+    inputs: list[str]
+    cpus: int = Field(ge=1)
+    ram_gb: float = Field(gt=0)
+
+
 class DecisionArgs(_Args):
     decision: str = Field(min_length=1)
     reason: str = Field(min_length=1)
     evidence: dict[str, Any] = Field(default_factory=dict)
     alternatives_considered: list[str] = Field(default_factory=list)
+    plan: PlanSpec | None = None
 
 
 class DatasetArgs(_Args):
@@ -252,7 +263,16 @@ def cancel_job(h: Harness, a: JobArgs, actor: str) -> dict[str, Any]:
 
 
 def record_decision(h: Harness, a: DecisionArgs, actor: str) -> dict[str, Any]:
-    h.record_decision(DecisionRecord(**a.model_dump(), actor=actor))
+    evidence = a.evidence | ({"plan": a.plan.model_dump()} if a.plan else {})
+    h.record_decision(
+        DecisionRecord(
+            decision=a.decision,
+            reason=a.reason,
+            evidence=evidence,
+            alternatives_considered=a.alternatives_considered,
+            actor=actor,
+        )
+    )
     return {"recorded": a.decision, "total_decisions": len(h.state.decisions)}
 
 

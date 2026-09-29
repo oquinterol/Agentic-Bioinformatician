@@ -111,12 +111,25 @@ const TOOLS: {
 		snippet: "Record an auditable decision (e.g. stop and why)",
 		guidelines: [
 			"When the objective is reached or cannot be reached responsibly, call record_decision with decision 'stop' and the reason before ending.",
+			"When record_decision describes a run you intend or would launch, fill its typed plan field (tool, params, inputs, cpus, ram_gb).",
 		],
 		parameters: Type.Object({
 			decision: Type.String({ minLength: 1 }),
 			reason: Type.String({ minLength: 1 }),
 			evidence: Type.Optional(FreeObject("Facts supporting the decision")),
 			alternatives_considered: Type.Optional(Type.Array(Type.String())),
+			plan: Type.Optional(
+				Type.Object(
+					{
+						tool: Type.String(),
+						params: Type.Optional(FreeObject("Tool parameters")),
+						inputs: Type.Array(Type.String()),
+						cpus: Type.Integer({ minimum: 1 }),
+						ram_gb: Type.Number({ exclusiveMinimum: 0 }),
+					},
+					{ description: "Exact run this decision commits to (use for plans)" },
+				),
+			),
 		}),
 	},
 	{
