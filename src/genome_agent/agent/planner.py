@@ -43,6 +43,8 @@ class DeterministicPlanner:
         if missing := [d.path for d in state.datasets if not Path(d.path).is_file()]:
             return Stop("dataset files are missing", evidence={"missing": missing})
         datasets = {d.path: str(d.kind) for d in state.datasets}
+        if (profile := self._profile_first(obs, datasets, spent)) is not None:
+            return profile
         verdicts = state.origin_verdicts()
         if (
             check := self._origin_check_first(obs, candidates, datasets, verdicts, spent)
@@ -78,7 +80,7 @@ class DeterministicPlanner:
             inputs = ToolInputs.from_files(
                 [Path(p) for p in selected],
                 datasets,
-                genome_size_bp=state.biological_context.genome_size_bp,
+                genome_size_bp=state.effective_genome_size()[0],
                 read_bases=state.measured_read_bases(selected),
             )
             chosen, reasons = None, []
@@ -103,7 +105,7 @@ class DeterministicPlanner:
                     inputs=selected,
                     cpus=a.estimate.cpus,
                     ram_gb=a.estimate.ram_gb,
-                    genome_size_bp=state.biological_context.genome_size_bp,
+                    genome_size_bp=state.effective_genome_size()[0],
                     reason=_reason(
                         adapter.name, obs, rejected | ({adapter.name: reasons} if reasons else {})
                     ),
@@ -170,6 +172,41 @@ class DeterministicPlanner:
             )
         )
 
+    def _profile_first(
+        self, obs: Observation, datasets: dict[str, str], spent: set[str]
+    ) -> AgentAction | None:
+        """Unknown genome size is a knowledge gap: measure it before planning around it."""
+        state = obs.state
+        res = state.system_resources
+        assert res is not None
+        if state.effective_genome_size()[0] is not None or PROFILE_TOOL in spent:
+            return None
+        if PROFILE_TOOL not in obs.registry.names():
+            return None
+        profiler = obs.registry.get(PROFILE_TOOL)
+        libs = profiler.select_inputs(datasets)
+        if not libs or not profiler.is_available(res):
+            return None
+        ploidy = state.biological_context.expected_ploidy or 2
+        inputs = ToolInputs.from_files([Path(p) for p in libs], datasets)
+        params = {"ploidy": ploidy}
+        a = assess(profiler, inputs, profiler.parse_params(params), obs.budget, obs.observations)
+        if not a.fits or a.estimate is None:
+            return None
+        return RunTool(
+            JobRequest(
+                tool=PROFILE_TOOL,
+                params=params,
+                inputs=libs,
+                cpus=a.estimate.cpus,
+                ram_gb=a.estimate.ram_gb,
+                reason="genome size is unknown: estimate it (and heterozygosity) from k-mers "
+                "before choosing or sizing an assembly",
+                evidence={"assumed_ploidy": ploidy},
+                actor=self.name,
+            )
+        )
+
     def _consistency_check_first(
         self,
         obs: Observation,
@@ -201,7 +238,7 @@ class DeterministicPlanner:
             inputs = ToolInputs.from_files(
                 [Path(p) for p in libs],
                 datasets,
-                genome_size_bp=obs.state.biological_context.genome_size_bp,
+                genome_size_bp=obs.state.effective_genome_size()[0],
             )
             a = assess(checker, inputs, checker.parse_params({}), obs.budget, obs.observations)
             if not a.fits or a.estimate is None:
@@ -210,7 +247,7 @@ class DeterministicPlanner:
                 JobRequest(
                     tool=CONSISTENCY_TOOL,
                     inputs=libs,
-                    genome_size_bp=obs.state.biological_context.genome_size_bp,
+                    genome_size_bp=obs.state.effective_genome_size()[0],
                     cpus=a.estimate.cpus,
                     ram_gb=a.estimate.ram_gb,
                     reason=f"no reference is registered: check that the libraries {adapter.name} "
@@ -232,6 +269,7 @@ def _reason(tool: str, obs: Observation, rejected: dict[str, list[str]]) -> str:
 MISMATCH = "does not match reference"
 ORIGIN_TOOL = "read_origin_check"
 CONSISTENCY_TOOL = "library_consistency_check"
+PROFILE_TOOL = "kmer_profile"
 
 
 def _inconsistent_pairs(state: ProjectState, libs: list[str]) -> list[frozenset[str]]:

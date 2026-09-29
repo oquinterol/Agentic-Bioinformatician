@@ -125,7 +125,7 @@ def _defaults(h: Harness, a: AssessArgs) -> tuple[list[str], int | None]:
         raise BridgeError(
             f"no inputs given and no registered dataset suits {a.tool} (use add_dataset)"
         )
-    return inputs, a.genome_size_bp or h.state.biological_context.genome_size_bp
+    return inputs, a.genome_size_bp or h.state.effective_genome_size()[0]
 
 
 def _budget(h: Harness) -> dict[str, Any]:
@@ -163,6 +163,7 @@ def project_status(h: Harness, _: NoArgs, actor: str) -> dict[str, Any]:
         "name": s.name,
         "objective": s.objective,
         "biological_context": s.biological_context.model_dump(),
+        "genome_size_in_use": dict(zip(("bp", "source"), s.effective_genome_size(), strict=True)),
         "datasets": [d.model_dump() for d in s.datasets],
         "blocked_tools": s.blocked_tools,
         "budget": _budget(h),
@@ -280,7 +281,7 @@ def record_decision(h: Harness, a: DecisionArgs, actor: str) -> dict[str, Any]:
     if a.plan:
         req = JobRequest(
             **a.plan.model_dump(),
-            genome_size_bp=h.state.biological_context.genome_size_bp,
+            genome_size_bp=h.state.effective_genome_size()[0],
             reason=a.reason,
             actor=actor,
         )

@@ -22,6 +22,8 @@ BIOINFORMATICS_TOOLS: tuple[ToolProbe, ...] = (
     ToolProbe("fastqc"),
     ToolProbe("NanoPlot"),
     ToolProbe("meryl", ("--version",)),
+    ToolProbe("jellyfish", ("--version",)),
+    ToolProbe("genomescope.R", ()),  # R script; no version flag
     ToolProbe("genomescope2", ("--version",)),
     ToolProbe("hifiasm"),
     ToolProbe("flye"),

@@ -43,6 +43,22 @@ $GA plan /tmp/toy8
 
 Each job records its estimated RAM and its **observed peak RSS**, so estimates can be checked against reality.
 
+## Sample identity: with or without a reference
+
+Mislabelled or contaminated reads silently ruin assemblies (this happened with real data here). Assemblers
+(`requires_verified_origin`) are therefore gated by the harness, not by the model's judgement:
+
+| Situation | Evidence the harness accepts | Tool |
+|---|---|---|
+| A reference or draft of the species is registered (`--kind reference_fasta`) | reads verified as "matches reference" | `read_origin_check` (minimap2 on a read sample) |
+| De novo, no reference, 2+ libraries pooled | every pair "consistent" | `library_consistency_check` (cross-maps ~1x of each library, normalised by a self baseline) |
+| Any case | genome size, heterozygosity and error rate per library, to compare with the declared organism | `kmer_profile` (jellyfish + GenomeScope2) |
+
+Reads that fail a check are never assembled. When two libraries disagree and there is no reference, the
+harness cannot tell which one is the declared species. The deterministic planner then stops and asks for
+evidence instead of guessing. `ProjectState.require_origin_check` (default on) can be switched off per project.
+Extra tools: `jellyfish` (BioArchLinux) and GenomeScope2 (R user library, `~/.local/bin/genomescope.R`).
+
 ## Running with Pi (LLM brain)
 
 Pi uses whatever authentication you already configured (subscriptions or API
@@ -69,9 +85,10 @@ not a terminal, `pi -p` reads it as extra prompt input and waits until it closes
 
 `genome-pi` starts Pi with `--no-builtin-tools --no-extensions --no-skills
 --no-context-files`, loads `integrations/pi/genome-agent.ts`, and appends
-`integrations/pi/SYSTEM.md`. The model sees exactly eleven tools: `inspect_system`,
+`integrations/pi/SYSTEM.md`. The model sees exactly eleven harness operations: `inspect_system`,
 `list_tools`, `project_status`, `assess_tool`, `run_tool`, `record_decision`,
-`add_dataset`, `read_job_log`, `job_status`, `wait_job` and `cancel_job`. Each tool forwards its arguments to `genome-agent tool <op>`, and
+`add_dataset`, `read_job_log`, `job_status`, `wait_job` and `cancel_job`. Bioinformatics tools
+(hifiasm, seqkit, read_origin_check, library_consistency_check, kmer_profile) are run through `run_tool`. Each tool forwards its arguments to `genome-agent tool <op>`, and
 every decision is recorded with `actor = llm:<provider>/<model>`. Every call,
 read-only calls included, is logged as a `bridge_call` event in `provenance.jsonl`.
 

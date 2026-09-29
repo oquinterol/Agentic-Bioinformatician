@@ -145,6 +145,21 @@ class ProjectState(BaseModel):
                     out.setdefault(key, set()).add(pair["verdict"])
         return out
 
+    def effective_genome_size(self) -> tuple[int | None, str]:
+        """Declared haploid genome size, else the median k-mer profile estimate."""
+        if self.biological_context.genome_size_bp:
+            return self.biological_context.genome_size_bp, "declared"
+        sizes = sorted(
+            f["haploid_length_bp"]
+            for r in self.results
+            if r.kind == "genome_profile"
+            for f in r.data.get("files", {}).values()
+            if f.get("haploid_length_bp")
+        )
+        if sizes:
+            return sizes[len(sizes) // 2], "kmer_profile (GenomeScope2)"
+        return None, "unknown"
+
     def has_reference(self) -> bool:
         return any(d.kind == ReadKind.REFERENCE for d in self.datasets)
 

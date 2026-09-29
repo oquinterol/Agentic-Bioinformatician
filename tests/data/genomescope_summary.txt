@@ -1,0 +1,14 @@
+GenomeScope version 2.0
+input file = dip.histo
+output directory = gs_out
+p = 2
+k = 21
+
+property                      min               max
+Homozygous (aa)               98.6541%          99.0014%
+Heterozygous (ab)             0.998618%         1.34594%
+Genome Haploid Length         1,940,522 bp      1,970,113 bp
+Genome Repeat Length          0 bp              0 bp
+Genome Unique Length          1,940,522 bp      1,970,113 bp
+Model Fit                     94.0895%          94.0895%
+Read Error Rate               0.10005%          0.10005%

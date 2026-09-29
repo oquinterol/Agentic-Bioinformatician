@@ -29,6 +29,7 @@ class DataType(StrEnum):
     ASSEMBLY_METRICS = "assembly_metrics"
     READ_ORIGIN = "read_origin"
     LIBRARY_CONSISTENCY = "library_consistency"
+    GENOME_PROFILE = "genome_profile"
 
 
 class ToolParams(BaseModel):
@@ -166,7 +167,10 @@ class ToolRegistry:
 def default_registry() -> ToolRegistry:
     from genome_agent.tools.adapters.consistency import LibraryConsistencyCheck
     from genome_agent.tools.adapters.hifiasm import Hifiasm
+    from genome_agent.tools.adapters.kmer import KmerProfile
     from genome_agent.tools.adapters.origin import ReadOriginCheck
     from genome_agent.tools.adapters.seqkit import SeqkitStats
 
-    return ToolRegistry([Hifiasm(), SeqkitStats(), ReadOriginCheck(), LibraryConsistencyCheck()])
+    return ToolRegistry(
+        [Hifiasm(), SeqkitStats(), ReadOriginCheck(), LibraryConsistencyCheck(), KmerProfile()]
+    )
