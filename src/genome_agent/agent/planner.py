@@ -19,7 +19,7 @@ from pathlib import Path
 
 from genome_agent.agent.backend import AgentAction, Observation, RunTool, Stop
 from genome_agent.executor.validation import JobRequest
-from genome_agent.state.models import JobStatus
+from genome_agent.state.models import JobStatus, ProjectState
 from genome_agent.tools.feasibility import assess
 from genome_agent.tools.registry import AnyAdapter, ToolInputs
 
@@ -62,6 +62,14 @@ class DeterministicPlanner:
             if adapter.name in spent:
                 continue
             selected = adapter.select_inputs(datasets)
+            if adapter.requires_verified_origin and (bad := _inconsistent_pairs(state, selected)):
+                rejected[adapter.name] = [
+                    f"libraries {sorted(pair)} are inconsistent (different organisms?) and no "
+                    "reference can tell which one is the declared species: register a reference "
+                    "or marker sequences, or exclude one library explicitly"
+                    for pair in bad
+                ]
+                continue
             if not selected:
                 rejected[adapter.name] = [
                     f"no registered dataset of kind {sorted(adapter.accepted_read_kinds or [])}"
@@ -126,6 +134,8 @@ class DeterministicPlanner:
         res = obs.state.system_resources
         assert res is not None
         refs = [p for p, k in datasets.items() if k == "reference_fasta"]
+        if not refs:
+            return self._consistency_check_first(obs, candidates, datasets, spent)
         if len(refs) != 1 or ORIGIN_TOOL in spent or ORIGIN_TOOL not in obs.registry.names():
             return None
         checker = obs.registry.get(ORIGIN_TOOL)
@@ -160,6 +170,57 @@ class DeterministicPlanner:
             )
         )
 
+    def _consistency_check_first(
+        self,
+        obs: Observation,
+        candidates: list[AnyAdapter],
+        datasets: dict[str, str],
+        spent: set[str],
+    ) -> AgentAction | None:
+        """No reference: libraries an assembler would pool must be cross-checked first."""
+        res = obs.state.system_resources
+        assert res is not None
+        if CONSISTENCY_TOOL in spent or CONSISTENCY_TOOL not in obs.registry.names():
+            return None
+        checker = obs.registry.get(CONSISTENCY_TOOL)
+        if not checker.is_available(res):
+            return None
+        known = obs.state.consistency_verdicts()
+        for adapter in candidates:
+            if not adapter.requires_verified_origin:
+                continue
+            libs = adapter.select_inputs(datasets)
+            unchecked = [
+                (x, y)
+                for i, x in enumerate(libs)
+                for y in libs[i + 1 :]
+                if frozenset((x, y)) not in known
+            ]
+            if not unchecked:
+                continue
+            inputs = ToolInputs.from_files(
+                [Path(p) for p in libs],
+                datasets,
+                genome_size_bp=obs.state.biological_context.genome_size_bp,
+            )
+            a = assess(checker, inputs, checker.parse_params({}), obs.budget, obs.observations)
+            if not a.fits or a.estimate is None:
+                return None
+            return RunTool(
+                JobRequest(
+                    tool=CONSISTENCY_TOOL,
+                    inputs=libs,
+                    genome_size_bp=obs.state.biological_context.genome_size_bp,
+                    cpus=a.estimate.cpus,
+                    ram_gb=a.estimate.ram_gb,
+                    reason=f"no reference is registered: check that the libraries {adapter.name} "
+                    "would pool come from the same organism before assembling them",
+                    evidence={"unchecked_pairs": [list(p) for p in unchecked]},
+                    actor=self.name,
+                )
+            )
+        return None
+
 
 def _reason(tool: str, obs: Observation, rejected: dict[str, list[str]]) -> str:
     text = f"{tool} is the most preferred tool producing '{obs.goal}' that fits the budget"
@@ -170,3 +231,14 @@ def _reason(tool: str, obs: Observation, rejected: dict[str, list[str]]) -> str:
 
 MISMATCH = "does not match reference"
 ORIGIN_TOOL = "read_origin_check"
+CONSISTENCY_TOOL = "library_consistency_check"
+
+
+def _inconsistent_pairs(state: ProjectState, libs: list[str]) -> list[frozenset[str]]:
+    known = state.consistency_verdicts()
+    return [
+        frozenset((x, y))
+        for i, x in enumerate(libs)
+        for y in libs[i + 1 :]
+        if "inconsistent" in known.get(frozenset((x, y)), set())
+    ]

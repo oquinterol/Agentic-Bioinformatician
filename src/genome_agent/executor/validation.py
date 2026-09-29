@@ -9,7 +9,7 @@ Path model:
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -76,6 +76,8 @@ class OriginPolicy:
     verdicts: dict[str, str]  # reads path -> latest read_origin_check verdict
     reference_registered: bool
     require_check: bool
+    # unordered pair of read libraries -> verdicts from library_consistency_check
+    pair_verdicts: dict[frozenset[str], set[str]] = field(default_factory=dict)
 
 
 def _check_origin(
@@ -90,10 +92,27 @@ def _check_origin(
     1. Never feed an origin-sensitive tool reads that failed the origin check.
     2. If a reference is registered and the project requires it, reads must
        have been verified as matching before an origin-sensitive tool uses them.
+    3. Never pool libraries found inconsistent with each other.
+    4. Without a reference (and if required), pooled libraries must have been
+       found consistent pairwise by library_consistency_check.
     """
     if origin is None or not sensitive:
         return []
     problems = []
+    reads = [str(p) for p in paths if datasets.get(str(p)) not in (None, "reference_fasta")]
+    for i, x in enumerate(reads):
+        for y in reads[i + 1 :]:
+            got = origin.pair_verdicts.get(frozenset((x, y)), set())
+            if "inconsistent" in got:
+                problems.append(
+                    f"{x} and {y} were found inconsistent by library_consistency_check; "
+                    f"{tool} must not pool them"
+                )
+            elif not origin.reference_registered and origin.require_check and got != {"consistent"}:
+                problems.append(
+                    f"pooling {x} and {y} without a reference requires "
+                    "library_consistency_check to find them consistent first"
+                )
     for p in paths:
         kind = datasets.get(str(p))
         if kind is None or kind == "reference_fasta":

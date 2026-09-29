@@ -48,8 +48,13 @@ def make_toy_hifi(
     heterozygosity: float = 0.0,
     gc: float = 0.4,
     seed: int = 1,
+    read_seed: int | None = None,
 ) -> ToyDataset:
-    """Write genome.fa (truth) and reads.fq to `outdir`."""
+    """Write genome.fa (truth) and reads.fq to `outdir`.
+
+    `seed` fixes the genome; `read_seed` (default: seed) the reads, so several
+    libraries of the same genome can be simulated.
+    """
     if read_length >= genome_size:
         raise ValueError("read_length must be smaller than genome_size")
     rng = random.Random(seed)
@@ -60,6 +65,8 @@ def make_toy_hifi(
     genome = outdir / "genome.fa"
     genome.write_text("".join(f">hap{i + 1}\n{h}\n" for i, h in enumerate(haps)))
 
+    if read_seed is not None:
+        rng = random.Random(read_seed)
     n_reads = int(coverage * genome_size / read_length)
     read_bases = 0
     reads = outdir / "reads.fq"

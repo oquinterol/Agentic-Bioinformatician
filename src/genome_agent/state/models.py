@@ -135,6 +135,16 @@ class ProjectState(BaseModel):
                     out[f] = v.get("verdict", "unknown")
         return out
 
+    def consistency_verdicts(self) -> dict[frozenset[str], set[str]]:
+        """Verdicts per unordered pair of read libraries (both directions pooled)."""
+        out: dict[frozenset[str], set[str]] = {}
+        for r in self.results:
+            if r.kind == "library_consistency":
+                for pair in r.data.get("pairs", []):
+                    key = frozenset((pair["target"], pair["query"]))
+                    out.setdefault(key, set()).add(pair["verdict"])
+        return out
+
     def has_reference(self) -> bool:
         return any(d.kind == ReadKind.REFERENCE for d in self.datasets)
 

@@ -146,6 +146,7 @@ class Harness:
                 verdicts=state.origin_verdicts(),
                 reference_registered=state.has_reference(),
                 require_check=state.require_origin_check,
+                pair_verdicts=state.consistency_verdicts(),
             ),
         )
 

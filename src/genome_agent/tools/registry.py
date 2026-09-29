@@ -28,6 +28,7 @@ class DataType(StrEnum):
     CONTIGS_FASTA = "contigs_fasta"
     ASSEMBLY_METRICS = "assembly_metrics"
     READ_ORIGIN = "read_origin"
+    LIBRARY_CONSISTENCY = "library_consistency"
 
 
 class ToolParams(BaseModel):
@@ -163,8 +164,9 @@ class ToolRegistry:
 
 
 def default_registry() -> ToolRegistry:
+    from genome_agent.tools.adapters.consistency import LibraryConsistencyCheck
     from genome_agent.tools.adapters.hifiasm import Hifiasm
     from genome_agent.tools.adapters.origin import ReadOriginCheck
     from genome_agent.tools.adapters.seqkit import SeqkitStats
 
-    return ToolRegistry([Hifiasm(), SeqkitStats(), ReadOriginCheck()])
+    return ToolRegistry([Hifiasm(), SeqkitStats(), ReadOriginCheck(), LibraryConsistencyCheck()])

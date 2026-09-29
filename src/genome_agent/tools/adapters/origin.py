@@ -8,6 +8,7 @@ potato draft: 4.86 GiB peak (~3.3 bytes per reference base); the estimate uses
 from __future__ import annotations
 
 import json
+import math
 import sys
 from pathlib import Path
 from typing import Any
@@ -60,7 +61,7 @@ class ReadOriginCheck(ToolAdapter[ReadOriginParams]):
         ram = _BASE_GB + _BYTES_PER_REF_BASE * ref_bytes / 1e9
         return ResourceEstimate(
             cpus=cpus,
-            ram_gb=round(ram + 0.005, 2),
+            ram_gb=math.ceil(ram * 100) / 100,
             disk_gb=0.1,
             basis=f"minimap2 index ~{_BYTES_PER_REF_BASE} B per reference base "
             f"(measured 3.3 B/base on a 1.58 Gb reference) + {_BASE_GB} GB",
