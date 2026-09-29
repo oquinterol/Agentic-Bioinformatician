@@ -12,8 +12,8 @@ Each phase ends with passing tests. No phase assembles a real genome before Phas
 | 5 | Tool registry: adapter protocol, mock assemblers, `seqkit stats` adapter, feasibility (thread fallback) | done |
 | 6 | Safe executor: request validation, timeout, capture, provenance (`Harness.run_tool`) | done |
 | 7 | Deterministic planner, agent loop, `genome-agent simulate scenario.toml` (select / reject / recover) | done |
-| 8 | `genome-agent tool <name> --json` protocol + Pi extension bridge (`integrations/pi/`) | next |
-| 9 | First real workflow on a tiny dataset (seqkit → hifiasm on toy reads) | |
+| 8 | `genome-agent tool <op>` JSON protocol + Pi bridge (`integrations/pi/`), token-free selftest | done (first real-model run pending) |
+| 9 | First real workflow on a tiny dataset (seqkit → hifiasm on toy reads) | next |
 | 10 | cgroup enforcement, observed peak RAM, estimator calibration | |
 | 11 | Benchmark harness: same scenario × N models | |
 

@@ -12,7 +12,7 @@ actually runs on**.
 │  - no built-in bash/edit     │  (pi --no-builtin-tools)
 │  - typed tools only          │
 └──────────────┬───────────────┘
-               │ JSON over subprocess:  genome-agent tool <name> --json
+               │ JSON over subprocess:  genome-agent tool <op>
 ┌──────────────▼───────────────┐
 │ Harness  (Python, this repo) │  THE AUTHORITY: resources, policy, state,
 │  resources/  state/  tools/  │  validation, provenance, permissions
@@ -27,7 +27,8 @@ actually runs on**.
 
 ### Why Pi as the Brain
 
-Verified against Pi 0.84.4 (`@earendil-works/pi-coding-agent`, `docs/extensions.md`):
+Verified against Pi 0.84.4 and re-verified against 0.87.1 (`dist/core/extensions/types.d.ts`,
+`examples/extensions/`):
 
 | Pi capability | How we use it |
 |---|---|
@@ -43,7 +44,7 @@ Conflicts, and how we handle them:
   permissions. The TypeScript extension must stay a thin, logic-free bridge.
   Every validation lives in Python, where pytest covers it.
 - **Pi is TypeScript, and the harness is Python.** The only contract between them
-  is the CLI JSON protocol (`genome-agent tool …`). Nothing else is shared, so Pi can
+  is the CLI JSON protocol (`genome-agent tool <op>`). Nothing else is shared, so Pi can
   be swapped for another backend (CaveAgent, a raw API loop, a local model) by
   reimplementing only the bridge.
 - **Session history is not state.** Pi's session JSONL is useful for audits. The
@@ -51,6 +52,23 @@ Conflicts, and how we handle them:
 
 The Python `AgentBackend` protocol (`agent/`) exists so that deterministic
 planners, used in tests and simulations, and LLM backends are interchangeable.
+
+### Bridge protocol (`bridge.py`, `integrations/pi/`)
+
+```
+Pi tool call ──► genome-agent tool <op> --project DIR --actor llm:<provider>/<model>
+                 stdin:  JSON arguments (strict Pydantic model, extra keys rejected)
+                 stdout: {"ok": true, "result": …} | {"ok": false, "error": "…"}
+                 exit:   0 ok, 2 expected error, other = bug (traceback on stderr)
+```
+
+- The **caller** sets `--actor`, so the model cannot claim that a decision came from someone else.
+- `ok: false` is thrown as a failed tool result in Pi, so the model sees the error text.
+- A rejected job is still `ok: true`, with `job.status = "rejected"` and the reasons. A rejection is information for the model, not a protocol error.
+- `simulate --setup-only` builds a scenario project, including its mock tools in
+  `.genome-agent/mock_tools.json`, so an LLM and the deterministic planner can be compared on identical inputs.
+- `genome-pi --selftest` loads the extension in RPC mode with no input, checks the active
+  tool set, makes one harness call, and exits. It spends no tokens and also runs in pytest.
 
 ## 2. Module boundaries (`src/genome_agent/`)
 
@@ -63,7 +81,8 @@ planners, used in tests and simulations, and LLM backends are interchangeable.
 | `provenance/` | Append-only decision and command log | state |
 | `agent/` | `AgentBackend` protocol (Observation → RunTool / Stop), `DeterministicPlanner`, `run_loop`, TOML scenarios | all above |
 | `harness.py` | `Harness.run_tool` / `record_decision`: the only path to execution | all above |
-| `cli.py` | `inspect`, `init`, `status` (later `simulate`, `tool`) | all above |
+| `bridge.py` | JSON tool protocol (`genome-agent tool <op>`) for Pi or any other runtime | all above |
+| `cli.py` | `inspect`, `init`, `status`, `simulate`, `tool` | all above |
 
 Rule: `resources/` and `state/` never import from `agent/`. The LLM layer sits on
 top and can be removed.

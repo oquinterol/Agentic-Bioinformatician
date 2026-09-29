@@ -7,6 +7,7 @@ without any sequencing data or bioinformatics software.
 
 from __future__ import annotations
 
+import json
 import tomllib
 from datetime import UTC, datetime
 from pathlib import Path
@@ -19,9 +20,17 @@ from genome_agent.agent.loop import LoopOutcome, run_loop
 from genome_agent.agent.planner import DeterministicPlanner
 from genome_agent.harness import Harness
 from genome_agent.resources.models import ResourcePolicy, SystemResources
-from genome_agent.state.models import BiologicalContext, Dataset, ProjectState, ReadKind
+from genome_agent.state.models import (
+    STATE_DIR,
+    BiologicalContext,
+    Dataset,
+    ProjectState,
+    ReadKind,
+)
 from genome_agent.tools.adapters.mock import MockAssembler
-from genome_agent.tools.registry import DataType, ToolRegistry
+from genome_agent.tools.registry import DataType, ToolRegistry, default_registry
+
+MOCK_TOOLS_FILE = "mock_tools.json"
 
 _FAKE_READS = "@r1\nACGTACGTACGTACGT\n+\nIIIIIIIIIIIIIIII\n"
 
@@ -120,8 +129,25 @@ def build_project(sc: Scenario, project_dir: Path) -> Harness:
         system_resources=_fake_machine(sc.machine, project_dir),
         datasets=datasets,
     ).save(project_dir)
-    registry = ToolRegistry([MockAssembler(**t.model_dump()) for t in sc.tools])
-    return Harness(project_dir, registry)
+    specs = [t.model_dump() for t in sc.tools]
+    (project_dir / STATE_DIR / MOCK_TOOLS_FILE).write_text(json.dumps(specs, indent=2))
+    return Harness(project_dir, load_registry(project_dir))
+
+
+def load_registry(project_dir: Path) -> ToolRegistry:
+    """Real adapters, plus the mock tools of a simulated project (in preference order).
+
+    Persisting the mocks lets a different backend (e.g. an LLM through Pi) work
+    on exactly the same simulated project as the deterministic planner.
+    """
+    mocks_path = project_dir / STATE_DIR / MOCK_TOOLS_FILE
+    if not mocks_path.exists():
+        return default_registry()
+    specs = [MockToolSpec.model_validate(s) for s in json.loads(mocks_path.read_text())]
+    registry = ToolRegistry([MockAssembler(**s.model_dump()) for s in specs])
+    for adapter in default_registry().adapters():
+        registry.register(adapter)
+    return registry
 
 
 def simulate(

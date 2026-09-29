@@ -1,4 +1,4 @@
-"""Command-line entry point: `genome-agent inspect | init | status | simulate`."""
+"""Command-line entry point: `genome-agent inspect | init | status | simulate | tool`."""
 
 from __future__ import annotations
 
@@ -109,10 +109,14 @@ def cmd_status(args: argparse.Namespace) -> int:
 def cmd_simulate(args: argparse.Namespace) -> int:
     import tempfile
 
-    from genome_agent.agent.simulation import Scenario, simulate
+    from genome_agent.agent.simulation import Scenario, build_project, simulate
 
     sc = Scenario.load(Path(args.scenario))
     project = Path(args.project) if args.project else Path(tempfile.mkdtemp(prefix="ga-sim-"))
+    if args.setup_only:
+        build_project(sc, project.resolve())
+        print(f"Simulated project '{sc.name}' ready at {project} (no planner run)")
+        return 0
     outcome, harness = simulate(sc, project.resolve())
     state = harness.state
     budget = state.policy.apply(state.system_resources) if state.system_resources else None
@@ -147,6 +151,23 @@ def cmd_simulate(args: argparse.Namespace) -> int:
     return 1 if problems else 0
 
 
+def cmd_tool(args: argparse.Namespace) -> int:
+    from genome_agent.bridge import call
+
+    raw = sys.stdin.read().strip() if not sys.stdin.isatty() else ""
+    try:
+        payload = json.loads(raw) if raw else {}
+    except json.JSONDecodeError as exc:
+        print(json.dumps({"ok": False, "error": f"stdin is not valid JSON: {exc}"}))
+        return 2
+    if not isinstance(payload, dict):
+        print(json.dumps({"ok": False, "error": "arguments must be a JSON object"}))
+        return 2
+    response = call(Path(args.project).resolve(), args.operation, payload, args.actor)
+    print(json.dumps(response, default=str))
+    return 0 if response["ok"] else 2
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="genome-agent", description=__doc__)
     p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
@@ -165,7 +186,18 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("simulate", help="run a mock scenario with the deterministic planner")
     s.add_argument("scenario", help="scenario TOML file (see examples/)")
     s.add_argument("--project", help="keep the simulated project here (default: temp dir)")
+    s.add_argument(
+        "--setup-only",
+        action="store_true",
+        help="build the project but let another backend (e.g. Pi) do the planning",
+    )
     s.set_defaults(func=cmd_simulate)
+
+    s = sub.add_parser("tool", help="JSON tool protocol for agent runtimes (args on stdin)")
+    s.add_argument("operation")
+    s.add_argument("--project", default=".")
+    s.add_argument("--actor", default="harness", help='who is deciding, e.g. "llm:anthropic/..."')
+    s.set_defaults(func=cmd_tool)
 
     s = sub.add_parser("status", help="summarise project state")
     s.add_argument("path", nargs="?", default=".")

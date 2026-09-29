@@ -115,6 +115,10 @@ class ToolRegistry:
     def names(self) -> list[str]:
         return sorted(self._adapters)
 
+    def adapters(self) -> list[AnyAdapter]:
+        """Every registered adapter, in registration (= preference) order."""
+        return list(self._adapters.values())
+
     def available(self, res: SystemResources) -> list[AnyAdapter]:
         return [a for a in self._adapters.values() if a.is_available(res)]
 

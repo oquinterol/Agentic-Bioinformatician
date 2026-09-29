@@ -5,8 +5,8 @@ context and an objective, it looks for the best scientifically defensible
 strategy that fits **this** machine:
 OBSERVE → PLAN → ESTIMATE → EXECUTE → EVALUATE → REPLAN.
 
-- **Brain:** [Pi Coding Agent](https://github.com/earendil-works/pi-mono), run with built-in tools
-  disabled and given typed GenomeAgent tools only (Phase 8).
+- **Brain:** [Pi Coding Agent](https://github.com/earendil-works/pi), run with built-in tools
+  disabled and given typed GenomeAgent tools only (`integrations/pi/`).
 - **Harness:** this Python package. It is the authority on resources, policy,
   state, validation and provenance.
 
@@ -25,6 +25,34 @@ python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'
 ```
 
 The MVP is Linux-only (it reads `/proc`).
+
+## Running with Pi (LLM brain)
+
+Pi uses whatever authentication you already configured (subscriptions or API
+keys), so switching models is just a Pi flag.
+
+```bash
+# 1. A project: a real one (genome-agent init) or a simulated scenario
+.venv/bin/genome-agent simulate examples/simple_assembly.toml --project /tmp/sim1 --setup-only
+
+# 2. Check the bridge. This spends no tokens and never prompts a model.
+integrations/pi/genome-pi --project /tmp/sim1 --selftest
+
+# 3. Let a model do the planning (interactive, or one-shot with -p)
+integrations/pi/genome-pi --project /tmp/sim1 --model <provider/model> \
+  -p "Produce the best contig assembly this machine allows."
+
+# 4. Inspect what it decided and compare with the deterministic baseline
+.venv/bin/genome-agent status /tmp/sim1
+cat /tmp/sim1/.genome-agent/provenance.jsonl
+```
+
+`genome-pi` starts Pi with `--no-builtin-tools --no-extensions --no-skills
+--no-context-files`, loads `integrations/pi/genome-agent.ts`, and appends
+`integrations/pi/SYSTEM.md`. The model sees exactly seven tools: `inspect_system`,
+`list_tools`, `project_status`, `assess_tool`, `run_tool`, `record_decision` and
+`add_dataset`. Each tool forwards its arguments to `genome-agent tool <op>`, and
+every decision is recorded with `actor = llm:<provider>/<model>`.
 
 ## No sandbox — by design
 

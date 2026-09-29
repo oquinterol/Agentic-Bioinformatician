@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# Launch Pi as the GenomeAgent brain.
+#
+#   integrations/pi/genome-pi --project DIR [any pi options, e.g. --model ..., -p "prompt"]
+#   integrations/pi/genome-pi --project DIR --selftest   # verify the bridge; spends no tokens
+#
+# - Built-in tools (bash/read/edit/write), discovered extensions, skills and context
+#   files are disabled: the model sees only the GenomeAgent tools and SYSTEM.md, which
+#   keeps runs comparable across models.
+# - Your Pi authentication (subscriptions, API keys) is used as-is.
+set -euo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO="$(cd "$HERE/../.." && pwd)"
+
+if [[ "${1:-}" == "--project" ]]; then
+  export GENOME_AGENT_PROJECT="$(cd "$2" && pwd)"
+  shift 2
+fi
+: "${GENOME_AGENT_PROJECT:=$PWD}"
+export GENOME_AGENT_PROJECT
+
+if [[ -z "${GENOME_AGENT_BIN:-}" ]]; then
+  if [[ -x "$REPO/.venv/bin/genome-agent" ]]; then
+    GENOME_AGENT_BIN="$REPO/.venv/bin/genome-agent"
+  else
+    GENOME_AGENT_BIN="genome-agent"
+  fi
+fi
+export GENOME_AGENT_BIN
+
+"$GENOME_AGENT_BIN" status "$GENOME_AGENT_PROJECT" >/dev/null || {
+  echo "genome-pi: $GENOME_AGENT_PROJECT is not a GenomeAgent project (run 'genome-agent init' or 'simulate --setup-only')" >&2
+  exit 1
+}
+
+if [[ "${1:-}" == "--selftest" ]]; then
+  # Token-free: RPC mode with no input never prompts a model.
+  shift
+  exec pi \
+    --no-extensions --no-builtin-tools --no-skills --no-context-files \
+    --extension "$HERE/genome-agent.ts" --extension "$HERE/selftest.ts" \
+    --mode rpc --no-session --offline "$@" </dev/null
+fi
+
+exec pi \
+  --no-extensions --no-builtin-tools --no-skills --no-context-files \
+  --extension "$HERE/genome-agent.ts" \
+  --append-system-prompt "$HERE/SYSTEM.md" \
+  "$@"
