@@ -73,6 +73,8 @@ class ToolAdapter[P: ToolParams](ABC):
     params_model: type[P]
     # Dataset kinds (ReadKind values) this tool is valid for; None = any input file.
     accepted_read_kinds: frozenset[str] | None = None
+    # True for tools whose result is invalid if reads come from the wrong organism
+    requires_verified_origin: bool = False
 
     def is_available(self, res: SystemResources) -> bool:
         return self.executable in res.tools
@@ -110,6 +112,7 @@ class ToolAdapter[P: ToolParams](ABC):
             "output_types": sorted(self.output_types),
             "params_schema": self.params_model.model_json_schema(),
             "param_variants": self.param_variants(),
+            "requires_verified_origin": self.requires_verified_origin,
             "accepted_read_kinds": (
                 sorted(self.accepted_read_kinds) if self.accepted_read_kinds is not None else "any"
             ),

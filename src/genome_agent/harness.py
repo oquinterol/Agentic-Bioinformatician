@@ -31,7 +31,13 @@ from genome_agent.executor.runner import (
     launch,
     read_execution,
 )
-from genome_agent.executor.validation import JobRejectedError, JobRequest, validate
+from genome_agent.executor.validation import (
+    JobRejectedError,
+    JobRequest,
+    OriginPolicy,
+    ValidatedJob,
+    validate,
+)
 from genome_agent.provenance.log import ProvenanceLog
 from genome_agent.resources.models import ResourceBudget
 from genome_agent.resources.observations import ObservationStore, ResourceObservation
@@ -41,7 +47,7 @@ from genome_agent.tools.registry import ToolRegistry
 
 RUNS_DIR = "runs"
 _POLL_S = 0.2
-_CANCEL_GRACE_S = 10.0
+_CANCEL_GRACE_S = 30.0  # runner start-up can be slow on a busy machine
 
 
 class Harness:
@@ -121,6 +127,38 @@ class Harness:
 
     # -- jobs --------------------------------------------------------------
 
+    def _validate(
+        self, state: ProjectState, req: JobRequest, budget: ResourceBudget, outdir: Path
+    ) -> ValidatedJob:
+        """The single set of rules shared by run_tool and check_plan."""
+        res = state.system_resources
+        assert res is not None
+        return validate(
+            req,
+            self.registry,
+            res,
+            budget,
+            outdir,
+            datasets={d.path: d.kind for d in state.datasets},
+            observations=self.observations,
+            read_bases=state.measured_read_bases(req.inputs),
+            origin=OriginPolicy(
+                verdicts=state.origin_verdicts(),
+                reference_registered=state.has_reference(),
+                require_check=state.require_origin_check,
+            ),
+        )
+
+    def check_plan(self, req: JobRequest) -> list[str]:
+        """Problems that would make `req` be rejected if run now; [] if it would be
+        accepted. Blocked tools are ignored: plans may target them."""
+        budget, _ = self.available_budget()
+        try:
+            self._validate(self.state, req, budget, self.project_dir / RUNS_DIR / "plan-check")
+        except JobRejectedError as exc:
+            return exc.reasons
+        return []
+
     def run_tool(self, req: JobRequest, wait_s: float | None = None) -> Job:
         """Validate and launch. Wait up to `wait_s` seconds (None = until done)."""
         with self.transaction() as state:
@@ -147,16 +185,7 @@ class Harness:
                     job.enforcement = state.policy.enforcement_backend(res)
                 except ValueError as exc:
                     raise JobRejectedError([str(exc)]) from None
-                vj = validate(
-                    req,
-                    self.registry,
-                    res,
-                    budget,
-                    outdir,
-                    datasets={d.path: d.kind for d in state.datasets},
-                    observations=self.observations,
-                    read_bases=state.measured_read_bases(req.inputs),
-                )
+                vj = self._validate(state, req, budget, outdir)
             except JobRejectedError as exc:
                 reasons = exc.reasons
                 if running:

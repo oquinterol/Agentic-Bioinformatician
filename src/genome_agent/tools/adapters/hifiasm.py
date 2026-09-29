@@ -60,6 +60,7 @@ class Hifiasm(ToolAdapter[HifiasmParams]):
     params_model = HifiasmParams
     # ONT needs --ont and Hi-C/UL reads are auxiliary inputs; neither is exposed yet.
     accepted_read_kinds = frozenset({"pacbio_hifi"})
+    requires_verified_origin = True
 
     def param_variants(self) -> list[dict[str, Any]]:
         # Tool default first; then without the 16 GiB bloom filter (slower

@@ -122,6 +122,21 @@ class ProjectState(BaseModel):
     artifacts: list[str] = Field(default_factory=list)
     # Tools the harness must refuse to run in this project (e.g. decision-only benchmarks)
     blocked_tools: list[str] = Field(default_factory=list)
+    # With a registered reference, origin-sensitive tools (assemblers) only accept reads
+    # whose read_origin_check verdict is "matches reference".
+    require_origin_check: bool = True
+
+    def origin_verdicts(self) -> dict[str, str]:
+        """Latest read_origin_check verdict per reads file."""
+        out: dict[str, str] = {}
+        for r in self.results:
+            if r.kind == "read_origin":
+                for f, v in r.data.get("files", {}).items():
+                    out[f] = v.get("verdict", "unknown")
+        return out
+
+    def has_reference(self) -> bool:
+        return any(d.kind == ReadKind.REFERENCE for d in self.datasets)
 
     def measured_read_bases(self, paths: list[str]) -> int | None:
         """Total bases of `paths` if a read_stats result measured every one of them."""

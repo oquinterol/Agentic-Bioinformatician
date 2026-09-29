@@ -132,3 +132,108 @@ def test_planner_checks_origin_first_and_assembles_only_matching_reads(tmp_path)
     }
     primary = h.state.results[-1].data["primary"]
     assert abs(primary["total_bp"] - 150_000) / 150_000 < 0.02  # A only, not A + B
+
+
+def with_verdicts(h, verdicts, require=True):
+    from genome_agent.state.lock import project_lock
+    from genome_agent.state.models import Result
+
+    with project_lock(h.project_dir):
+        s = ProjectState.load(h.project_dir)
+        s.require_origin_check = require
+        if verdicts:
+            s.results.append(
+                Result(
+                    job_id="0000-read_origin_check",
+                    kind="read_origin",
+                    data={"files": {p: {"verdict": v} for p, v in verdicts.items()}},
+                )
+            )
+        s.save(h.project_dir)
+    return Harness(h.project_dir, default_registry())
+
+
+def hifiasm_req(path):
+    return JobRequest(
+        tool="hifiasm",
+        params={"bloom_bits": 0},
+        inputs=[str(path)],
+        cpus=2,
+        ram_gb=6,
+        reason="assemble",
+    )
+
+
+def test_unverified_reads_are_rejected_when_a_reference_exists(tmp_path):
+    h, a, _ = mixed_project(tmp_path)
+    job = h.run_tool(hifiasm_req(a.reads_fastq))
+    assert job.status == JobStatus.REJECTED
+    assert "not verified: run read_origin_check" in job.rejection_reasons[0]
+
+
+def test_mismatching_reads_are_always_rejected(tmp_path):
+    h, _, b = mixed_project(tmp_path)
+    h = with_verdicts(h, {str(b.reads_fastq): "does not match reference"}, require=False)
+    job = h.run_tool(hifiasm_req(b.reads_fastq))
+    assert (
+        job.status == JobStatus.REJECTED and "failed read_origin_check" in job.rejection_reasons[0]
+    )
+
+
+def test_ambiguous_reads_are_rejected_under_the_requirement(tmp_path):
+    h, a, _ = mixed_project(tmp_path)
+    h = with_verdicts(h, {str(a.reads_fastq): "ambiguous"})
+    job = h.run_tool(hifiasm_req(a.reads_fastq))
+    assert "verdict is 'ambiguous'" in job.rejection_reasons[0]
+
+
+@needs_tools
+def test_requirement_can_be_disabled_per_project(tmp_path):
+    h, a, _ = mixed_project(tmp_path)
+    h = with_verdicts(h, {}, require=False)
+    job = h.run_tool(hifiasm_req(a.reads_fastq))  # unverified, but the project opted out
+    assert job.status == JobStatus.SUCCEEDED, job.rejection_reasons or job.error
+
+
+@needs_tools
+def test_verified_reads_are_assembled(tmp_path):
+    h, a, _ = mixed_project(tmp_path)
+    h = with_verdicts(h, {str(a.reads_fastq): "matches reference"})
+    job = h.run_tool(hifiasm_req(a.reads_fastq))
+    assert job.status == JobStatus.SUCCEEDED, job.rejection_reasons or job.error
+
+
+def test_non_sensitive_tools_ignore_the_requirement(tmp_path):
+    h, a, _ = mixed_project(tmp_path)
+    assert (
+        "requires_verified_origin"
+        in call(h.project_dir, "list_tools", {}, "t")["result"]["tools"][0]
+    )
+    job = h.run_tool(
+        JobRequest(
+            tool="seqkit_stats", inputs=[str(a.reads_fastq)], cpus=1, ram_gb=1, reason="profile"
+        )
+    )
+    assert not any("origin" in r for r in job.rejection_reasons)
+
+
+def test_a_plan_that_pools_mismatching_reads_is_rejected(tmp_path):
+    """The gpt-5.5 failure mode: plan both cells without running the origin check."""
+    h, a, b = mixed_project(tmp_path)
+    plan = {
+        "tool": "hifiasm",
+        "params": {"bloom_bits": 0},
+        "inputs": [str(a.reads_fastq), str(b.reads_fastq)],
+        "cpus": 2,
+        "ram_gb": 6,
+    }
+    args = {"decision": "assembly_plan", "reason": "use all reads", "plan": plan}
+    unverified = call(h.project_dir, "record_decision", args, "llm:x")
+    assert not unverified["ok"] and "not verified: run read_origin_check" in unverified["error"]
+    h = with_verdicts(
+        h, {str(a.reads_fastq): "matches reference", str(b.reads_fastq): "does not match reference"}
+    )
+    pooled = call(h.project_dir, "record_decision", args, "llm:x")
+    assert not pooled["ok"] and "failed read_origin_check" in pooled["error"]
+    args["plan"]["inputs"] = [str(a.reads_fastq)]
+    assert call(h.project_dir, "record_decision", args, "llm:x")["ok"]

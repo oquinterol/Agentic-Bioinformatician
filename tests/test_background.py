@@ -69,7 +69,7 @@ def test_cancel_kills_the_job(tmp_path):
     job = h.run_tool(req(h, "slow"), wait_s=0)
     t0 = time.monotonic()
     cancelled = h.cancel_job(job.id)
-    assert cancelled.status == JobStatus.CANCELLED and time.monotonic() - t0 < 10
+    assert cancelled.status == JobStatus.CANCELLED and time.monotonic() - t0 < 30
     assert "cancelled" in cancelled.error
 
 

@@ -15,7 +15,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from genome_agent.agent.simulation import load_registry
 from genome_agent.executor.validation import DEFAULT_TIMEOUT_S, JobRequest
@@ -80,6 +80,15 @@ class DecisionArgs(_Args):
     evidence: dict[str, Any] = Field(default_factory=dict)
     alternatives_considered: list[str] = Field(default_factory=list)
     plan: PlanSpec | None = None
+
+    @model_validator(mode="after")
+    def _plans_are_typed(self) -> DecisionArgs:
+        if self.decision.endswith("_plan") and self.plan is None:
+            raise ValueError(
+                f"'{self.decision}' decisions must include the typed plan field "
+                "(tool, params, inputs, cpus, ram_gb) so the harness can check it"
+            )
+        return self
 
 
 class DatasetArgs(_Args):
@@ -267,7 +276,19 @@ def cancel_job(h: Harness, a: JobArgs, actor: str) -> dict[str, Any]:
 
 
 def record_decision(h: Harness, a: DecisionArgs, actor: str) -> dict[str, Any]:
-    evidence = a.evidence | ({"plan": a.plan.model_dump()} if a.plan else {})
+    evidence = dict(a.evidence)
+    if a.plan:
+        req = JobRequest(
+            **a.plan.model_dump(),
+            genome_size_bp=h.state.biological_context.genome_size_bp,
+            reason=a.reason,
+            actor=actor,
+        )
+        if problems := h.check_plan(req):
+            raise BridgeError(
+                "plan rejected by the harness (the same rules as run_tool): " + "; ".join(problems)
+            )
+        evidence |= {"plan": a.plan.model_dump(), "plan_checked_by_harness": True}
     h.record_decision(
         DecisionRecord(
             decision=a.decision,

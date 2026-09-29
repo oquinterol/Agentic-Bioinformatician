@@ -67,6 +67,49 @@ def _check_inputs(raw: list[str]) -> tuple[list[Path], list[str]]:
     return paths, problems
 
 
+MATCH = "matches reference"
+MISMATCH = "does not match reference"
+
+
+@dataclass(frozen=True)
+class OriginPolicy:
+    verdicts: dict[str, str]  # reads path -> latest read_origin_check verdict
+    reference_registered: bool
+    require_check: bool
+
+
+def _check_origin(
+    tool: str,
+    sensitive: bool,
+    paths: list[Path],
+    datasets: dict[str, str],
+    origin: OriginPolicy | None,
+) -> list[str]:
+    """Safety rules that must not depend on the agent's judgement.
+
+    1. Never feed an origin-sensitive tool reads that failed the origin check.
+    2. If a reference is registered and the project requires it, reads must
+       have been verified as matching before an origin-sensitive tool uses them.
+    """
+    if origin is None or not sensitive:
+        return []
+    problems = []
+    for p in paths:
+        kind = datasets.get(str(p))
+        if kind is None or kind == "reference_fasta":
+            continue
+        verdict = origin.verdicts.get(str(p))
+        if verdict == MISMATCH:
+            problems.append(f"{p} failed read_origin_check ({MISMATCH}); {tool} must not use it")
+        elif origin.reference_registered and origin.require_check and verdict != MATCH:
+            state = "not verified" if verdict is None else f"verdict is '{verdict}'"
+            problems.append(
+                f"{p} is {state}: run read_origin_check against the registered reference "
+                f"before {tool} (project requires verified read origin)"
+            )
+    return problems
+
+
 def validate(
     req: JobRequest,
     registry: ToolRegistry,
@@ -76,6 +119,7 @@ def validate(
     datasets: dict[str, str] | None = None,
     observations: ObservationStore | None = None,
     read_bases: int | None = None,
+    origin: OriginPolicy | None = None,
 ) -> ValidatedJob:
     """`datasets` maps registered dataset paths to their kind (ReadKind value);
     `observations` raises estimates that past identical runs exceeded."""
@@ -104,6 +148,10 @@ def validate(
         ]
         if wrong:
             raise JobRejectedError(wrong)
+    if origin_problems := _check_origin(
+        adapter.name, adapter.requires_verified_origin, paths, datasets or {}, origin
+    ):
+        raise JobRejectedError(origin_problems)
     inputs = ToolInputs.from_files(
         paths, datasets, genome_size_bp=req.genome_size_bp, read_bases=read_bases
     )

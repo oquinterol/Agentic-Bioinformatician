@@ -19,7 +19,7 @@ from pathlib import Path
 
 from genome_agent.agent.backend import AgentAction, Observation, RunTool, Stop
 from genome_agent.executor.validation import JobRequest
-from genome_agent.state.models import JobStatus, ProjectState
+from genome_agent.state.models import JobStatus
 from genome_agent.tools.feasibility import assess
 from genome_agent.tools.registry import AnyAdapter, ToolInputs
 
@@ -43,7 +43,7 @@ class DeterministicPlanner:
         if missing := [d.path for d in state.datasets if not Path(d.path).is_file()]:
             return Stop("dataset files are missing", evidence={"missing": missing})
         datasets = {d.path: str(d.kind) for d in state.datasets}
-        verdicts = origin_verdicts(state)
+        verdicts = state.origin_verdicts()
         if (
             check := self._origin_check_first(obs, candidates, datasets, verdicts, spent)
         ) is not None:
@@ -170,13 +170,3 @@ def _reason(tool: str, obs: Observation, rejected: dict[str, list[str]]) -> str:
 
 MISMATCH = "does not match reference"
 ORIGIN_TOOL = "read_origin_check"
-
-
-def origin_verdicts(state: ProjectState) -> dict[str, str]:
-    """Latest read_origin_check verdict per reads file."""
-    out: dict[str, str] = {}
-    for r in state.results:
-        if r.kind == "read_origin":
-            for f, v in r.data.get("files", {}).items():
-                out[f] = v.get("verdict", "unknown")
-    return out
