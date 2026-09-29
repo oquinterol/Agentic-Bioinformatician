@@ -35,3 +35,27 @@ Each phase ends with passing tests. No phase assembles a real genome before Phas
 - Estimates vs. observed: hifiasm `-f37` was estimated at 16.51 GB and peaked at 16.08 GB. `-f0` was estimated
   at 0.51 GB and peaked at 0.08–0.11 GB. The per-Gbp term is still uncalibrated.
 - `run_tool` blocks until the job ends. Long assemblies need background jobs plus status polling.
+
+## Real-data decision benchmark: Colombian creole potato (2026-09-29)
+
+Data: two PacBio HiFi cells documented as *S. tuberosum* Group Phureja (m64140: 19.3 Gbp; m84100: 28.2 Gbp).
+Machine: 16 threads (Xeon E5520), 48.4 GB RAM budget. The assembler was blocked, so each backend had to record an `assembly_plan`.
+
+**Finding 1: the metadata was wrong.** The user suspected one cell was quinoa. Mapping 2,000 reads per cell
+to the existing Phureja draft gave: m84100 1,998 of 2,000 mapped, median identity 0.981; m64140 0 of 2,000 well aligned.
+The GC content is 35.4 % for m84100 and 36.7 % for m64140. This led to `read_origin_check` and `Dataset.species`.
+
+| Round | Deterministic | gpt-6-sol | gpt-5.5 |
+|---|---|---|---|
+| 1 (no reference registered) | both cells, `-f0`, 33.4 GB (inferred bases) | m84100 only, `-f34 --primary`, 30.7 GB (for read length and headroom, *not* species) | both cells, `-f0 --primary`, 48.07 GB |
+| 2 (reference + origin tool) | origin check (rule) → m84100, default mode, 32.1 GB (inferred) | **profiled + origin check on its own** → m84100, `-f0 --primary`, 28.7 GB | profiled, **skipped the origin check** ("not run in this decision-only pass") → both cells again |
+
+**Finding 2: profiling changes feasibility.** The file-size heuristic inferred 32.9 Gbp, while seqkit measured 47.6 Gbp.
+Plans based on inferred bases under-reserve memory, which under kernel enforcement means a late OOM kill.
+
+**Finding 3: a model that has the right tool can still decide not to use it.** Safety-critical checks must not depend on
+model judgement. Proposed next harness change: reject assembler inputs whose verdict is "does not match reference", and
+(policy, on by default) require an origin verdict for reads when a reference is registered.
+
+The final assembly was chosen by the user: m84100, hifiasm default mode, 14 threads, 48 GB reserved and
+kernel-enforced. It runs in `bench/phureja_assembly`, with a memory curve logged every minute for estimator calibration.
