@@ -127,6 +127,21 @@ const TOOLS: {
 			kind: StringEnum(["pacbio_hifi", "ont", "illumina", "hic", "rnaseq", "other"] as const),
 		}),
 	},
+	{
+		name: "read_job_log",
+		label: "Read job log",
+		description:
+			"Last lines of a project job's stderr (default) or stdout. Use it to diagnose why a job failed before deciding how to replan.",
+		snippet: "Read the stderr/stdout tail of a project job",
+		guidelines: [
+			"After a failed run_tool, call read_job_log on that job to understand the cause before choosing the next action.",
+		],
+		parameters: Type.Object({
+			job_id: Type.String({ description: "Job id from project_status, e.g. 0001-hifiasm" }),
+			stream: Type.Optional(StringEnum(["stderr", "stdout"] as const)),
+			tail_lines: Type.Optional(Type.Integer({ minimum: 1, maximum: 2000 })),
+		}),
+	},
 ];
 
 export const TOOL_NAMES = new Set(TOOLS.map((t) => t.name));

@@ -47,12 +47,16 @@ integrations/pi/genome-pi --project /tmp/sim1 --model <provider/model> \
 cat /tmp/sim1/.genome-agent/provenance.jsonl
 ```
 
+For scripted or background runs, close stdin with `</dev/null`. When stdin is
+not a terminal, `pi -p` reads it as extra prompt input and waits until it closes.
+
 `genome-pi` starts Pi with `--no-builtin-tools --no-extensions --no-skills
 --no-context-files`, loads `integrations/pi/genome-agent.ts`, and appends
-`integrations/pi/SYSTEM.md`. The model sees exactly seven tools: `inspect_system`,
-`list_tools`, `project_status`, `assess_tool`, `run_tool`, `record_decision` and
-`add_dataset`. Each tool forwards its arguments to `genome-agent tool <op>`, and
-every decision is recorded with `actor = llm:<provider>/<model>`.
+`integrations/pi/SYSTEM.md`. The model sees exactly eight tools: `inspect_system`,
+`list_tools`, `project_status`, `assess_tool`, `run_tool`, `record_decision`,
+`add_dataset` and `read_job_log`. Each tool forwards its arguments to `genome-agent tool <op>`, and
+every decision is recorded with `actor = llm:<provider>/<model>`. Every call,
+read-only calls included, is logged as a `bridge_call` event in `provenance.jsonl`.
 
 ## No sandbox — by design
 

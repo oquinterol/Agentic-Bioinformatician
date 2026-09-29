@@ -16,7 +16,8 @@ Work in this loop: OBSERVE → PLAN → ESTIMATE → EXECUTE → EVALUATE → RE
    `alternatives_considered`, and supporting `evidence`. These become the audit
    trail that other scientists will read.
 4. **Evaluate after every job.** Read the result or the failure in
-   `project_status`. Never repeat an identical failed or rejected request.
+   `project_status`, and for a failure read the job's stderr with `read_job_log`
+   before deciding. Never repeat an identical failed or rejected request.
    Change the tool, the threads or the scope, or stop.
 5. **Know when to stop.** If the objective is reached, or cannot be reached
    responsibly with this data on this machine, call `record_decision` with

@@ -164,3 +164,63 @@ def test_pi_selftest_loads_bridge_without_prompting_a_model(project):
     assert report["only_genome_agent_tools"] and report["builtin_tools_absent"]
     assert sorted(report["active_tools"]) == sorted(OPERATIONS)
     assert report["harness_call"]["result"]["budget"]["ram_gb"] == 6.4
+
+
+def test_read_job_log_returns_tail_of_failed_job(tmp_path):
+    p = tmp_path / "proj"
+    build_project(Scenario.load(EXAMPLES / "recover_after_failure.toml"), p)
+    args = {"tool": "assembler_B", "cpus": 1, "ram_gb": 6, "reason": "try"}
+    job = ok(call(p, "run_tool", args, ACTOR))["job"]
+    assert job["status"] == "failed"
+    log = ok(call(p, "read_job_log", {"job_id": job["id"]}, ACTOR))
+    assert any("simulated failure" in ln for ln in log["lines"])
+    out = ok(call(p, "read_job_log", {"job_id": job["id"], "stream": "stdout"}, ACTOR))
+    assert out["lines"] == []
+
+
+def test_read_job_log_errors(project):
+    resp = call(project, "read_job_log", {"job_id": "9999-x"}, ACTOR)
+    assert not resp["ok"] and "unknown job" in resp["error"]
+    rejected = ok(
+        call(
+            project,
+            "run_tool",
+            {"tool": "assembler_A", "cpus": 1, "ram_gb": 6, "reason": "x"},
+            ACTOR,
+        )
+    )
+    resp = call(project, "read_job_log", {"job_id": rejected["job"]["id"]}, ACTOR)
+    assert not resp["ok"] and "no stderr log" in resp["error"]
+
+
+def test_read_job_log_refuses_paths_outside_runs(project):
+    ok(
+        call(
+            project,
+            "run_tool",
+            {"tool": "assembler_B", "cpus": 1, "ram_gb": 6, "reason": "x"},
+            ACTOR,
+        )
+    )
+    state = ProjectState.load(project)
+    state.jobs[0].stderr_path = "/etc/passwd"  # tampered state file
+    state.save(project)
+    resp = call(project, "read_job_log", {"job_id": state.jobs[0].id}, ACTOR)
+    assert not resp["ok"] and "outside the project runs/" in resp["error"]
+
+
+def test_every_bridge_call_is_logged_including_read_only_and_errors(project):
+    call(project, "list_tools", {}, ACTOR)
+    call(project, "assess_tool", {"tool": "ghost"}, ACTOR)
+    calls = [e for e in ProvenanceLog(project).read() if e["event"] == "bridge_call"]
+    assert [(c["operation"], c["ok"]) for c in calls] == [
+        ("list_tools", True),
+        ("assess_tool", False),
+    ]
+    assert calls[1]["actor"] == ACTOR and "ghost" in calls[1]["error"]
+    assert calls[1]["args"] == {"tool": "ghost"}
+
+
+def test_calls_outside_a_project_do_not_create_state(tmp_path):
+    call(tmp_path, "list_tools", {}, ACTOR)
+    assert not (tmp_path / ".genome-agent").exists()

@@ -10,18 +10,22 @@ models, and anything that executes goes through Harness.run_tool.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from genome_agent.agent.simulation import load_registry
 from genome_agent.executor.validation import DEFAULT_TIMEOUT_S, JobRequest
-from genome_agent.harness import Harness
-from genome_agent.state.models import Dataset, DecisionRecord, ReadKind
+from genome_agent.harness import RUNS_DIR, Harness
+from genome_agent.provenance.log import ProvenanceLog
+from genome_agent.state.models import Dataset, DecisionRecord, ProjectState, ReadKind
 from genome_agent.tools.feasibility import assess
 from genome_agent.tools.registry import ToolInputs
+
+MAX_LOG_LINES = 2000
 
 
 class BridgeError(Exception):
@@ -62,6 +66,12 @@ class DecisionArgs(_Args):
 class DatasetArgs(_Args):
     path: str
     kind: ReadKind
+
+
+class LogArgs(_Args):
+    job_id: str
+    stream: Literal["stderr", "stdout"] = "stderr"
+    tail_lines: int = Field(default=100, ge=1, le=MAX_LOG_LINES)
 
 
 def _defaults(h: Harness, a: AssessArgs) -> tuple[list[str], int | None]:
@@ -190,6 +200,27 @@ def add_dataset(h: Harness, a: DatasetArgs, actor: str) -> dict[str, Any]:
     return {"datasets": [d.model_dump() for d in h.state.datasets]}
 
 
+def read_job_log(h: Harness, a: LogArgs, actor: str) -> dict[str, Any]:
+    """Tail of a job's stdout/stderr. Only logs recorded for this project's jobs."""
+    job = next((j for j in h.state.jobs if j.id == a.job_id), None)
+    if job is None:
+        raise BridgeError(f"unknown job '{a.job_id}'; known: {[j.id for j in h.state.jobs]}")
+    raw = job.stderr_path if a.stream == "stderr" else job.stdout_path
+    if raw is None:
+        raise BridgeError(f"job {a.job_id} has no {a.stream} log (status: {job.status})")
+    path = Path(raw).resolve()
+    if not path.is_relative_to(h.project_dir / RUNS_DIR):
+        raise BridgeError(f"refusing to read a log outside the project runs/ directory: {path}")
+    with path.open("rb") as fh:
+        lines = fh.read().decode(errors="replace").splitlines()
+    return {
+        "job_id": a.job_id,
+        "stream": a.stream,
+        "total_lines": len(lines),
+        "lines": lines[-a.tail_lines :],
+    }
+
+
 type Operation = Callable[[Harness, Any, str], dict[str, Any]]
 
 OPERATIONS: dict[str, tuple[type[_Args], Operation]] = {
@@ -200,11 +231,31 @@ OPERATIONS: dict[str, tuple[type[_Args], Operation]] = {
     "run_tool": (RunArgs, run_tool),
     "record_decision": (DecisionArgs, record_decision),
     "add_dataset": (DatasetArgs, add_dataset),
+    "read_job_log": (LogArgs, read_job_log),
 }
 
 
 def call(project_dir: Path, operation: str, raw_args: dict[str, Any], actor: str) -> dict[str, Any]:
-    """Dispatch one operation. Expected problems return ok=false; bugs raise."""
+    """Dispatch one operation and log the call (read-only ones too) for benchmarking."""
+    start = time.monotonic()
+    response = _dispatch(project_dir, operation, raw_args, actor)
+    if ProjectState.path_for(project_dir).exists():
+        ProvenanceLog(project_dir).append(
+            "bridge_call",
+            operation=operation,
+            actor=actor,
+            ok=response["ok"],
+            error=response.get("error"),
+            args=raw_args,
+            duration_s=round(time.monotonic() - start, 3),
+        )
+    return response
+
+
+def _dispatch(
+    project_dir: Path, operation: str, raw_args: dict[str, Any], actor: str
+) -> dict[str, Any]:
+    """Expected problems return ok=false; bugs raise."""
     if operation not in OPERATIONS:
         return {"ok": False, "error": f"unknown operation '{operation}'; known: {list(OPERATIONS)}"}
     args_model, fn = OPERATIONS[operation]
