@@ -59,3 +59,10 @@ model judgement. Proposed next harness change: reject assembler inputs whose ver
 
 The final assembly was chosen by the user: m84100, hifiasm default mode, 14 threads, 48 GB reserved and
 kernel-enforced. It runs in `bench/phureja_assembly`, with a memory curve logged every minute for estimator calibration.
+
+**Round 3 (after the origin safeguard, commit e1a0844)** used gpt-5.5 only, with the same prompt, data and machine snapshot as round 2.
+gpt-5.5 profiled the reads, **ran read_origin_check on its own**, excluded m64140 and recorded the same plan as gpt-6-sol:
+m84100, `-f0 --primary`, 28.74 GB. That plan passed the harness plan check. The safeguard was *not* triggered, because nothing
+was rejected. The visible change in its environment was `requires_verified_origin: true` in `list_tools`, which likely guided it.
+This is one run, so model variance cannot be excluded. Either way, the harness now guarantees the outcome
+whatever the model decides. (seqkit took 1,109 s instead of 657 s because it shared the CPU with the running assembly.)
