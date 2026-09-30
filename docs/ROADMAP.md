@@ -86,3 +86,29 @@ The bloom-filter k-mer counting phase peaked at 24.9 GB (~16 GB bloom + ~9 GB) a
 rounds plateaued at ~23 GB without the bloom filter (≈0.8 GB per Gbp of reads). The adapter's additive model
 (bloom + 1.0 GB/Gbp) is therefore structurally wrong for large inputs, even though its per-Gbp coefficient was close.
 This is one run, with -f37 only. The -f0 counting phase is still unmeasured at scale.
+
+## No-reference benchmark (2026-09-30): can agents catch mislabelled data without a genome?
+
+Setup: both cells documented as Phureja, **no reference registered**, hifiasm blocked, same prompt, one machine snapshot for all
+(14 threads, 45.3 GB). New tools: `library_consistency_check`, `kmer_profile`, and the harness pooling rules.
+
+| | Deterministic | gpt-6-sol | gpt-5.5 | gpt-6.1-sol |
+|---|---|---|---|---|
+| Consistency check | yes (rule) | yes | yes, **0.1x targets: 20 s, 0.6 GB** | yes |
+| k-mer profile | no (genome size declared) | yes | yes (1 rejected try) | yes (1 rejected try) |
+| Outcome | **stop**: libraries disagree, no reference | plan m84100 only | plan m84100 only | plan m84100 only |
+| Plan | – | hifiasm `--primary`, 26.39 GB | `-f37 --primary`, 26.39 GB | `-f37 --primary -l2`, 26.39 GB |
+| Calls / errors / wall | – / – / 94 s | 29 / 0 / 38 min | 24 / 0 / 36 min | 25 / 1 / 38 min |
+
+Evidence the models used, all reference-free:
+- cross-mapping 0.0 % in both directions, against self baselines of 24.6 % / 36.1 % (and 18.5 % / 12.5 % at 0.1x targets,
+  so gpt-5.5's much cheaper check was still decisive thanks to the self-baseline normalisation)
+- GenomeScope2: m84100 773.5 Mb, 1.29 % het, which matches the new assembly's haplotypes (773–793 Mb); m64140 486 Mb, 0.25 % het
+  under a diploid model, which is incompatible with the declared potato
+
+All three models now agree, where in round 2 gpt-5.5 pooled the species. All plans passed the harness plan check.
+Two k-mer runs were first rejected: the requested RAM (13.15 GB) came from an assessment made before seqkit
+had measured the read bases, and the harness re-estimated 14.2 GB. Both models recovered on the next call.
+
+Estimator notes: `kmer_profile` peaked at 6.68 GB against 14.15 GB estimated (≈3.2 B per hash entry at this scale, not
+the 5.5 measured on toy data). It is conservative, and a calibration candidate.
