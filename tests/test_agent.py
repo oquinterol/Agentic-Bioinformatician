@@ -68,7 +68,7 @@ def test_all_candidates_fail_then_stop(tmp_path):
     )
     outcome, _ = simulate(sc, tmp_path / "p")
     assert not outcome.achieved and outcome.jobs_failed == 2
-    assert "all have failed" in outcome.reason
+    assert "previous attempt" in outcome.reason and "failed" in outcome.reason
 
 
 def test_unknown_genome_size_stops_with_knowledge_gap(tmp_path):

@@ -120,8 +120,9 @@ class DeterministicPlanner:
                     actor=self.name,
                 )
             )
+        why = "; ".join(f"{tool}: {reasons[0]}" for tool, reasons in rejected.items() if reasons)
         return Stop(
-            f"no candidate for '{obs.goal}' fits this machine or all have failed",
+            f"no candidate for '{obs.goal}' can run responsibly here ({why or 'none available'})",
             evidence={"rejected": rejected, "budget": obs.budget.model_dump()},
         )
 
