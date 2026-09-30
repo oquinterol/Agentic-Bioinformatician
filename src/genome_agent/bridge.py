@@ -134,7 +134,7 @@ def _budget(h: Harness) -> dict[str, Any]:
     free, running = h.available_budget()
     return h.state.policy.apply(h.state.system_resources).model_dump() | {
         "free_now": free.model_dump(),
-        "reserved_by_running_jobs": running,
+        "reserved_by_running_jobs": running,  # includes jobs of other projects on this machine
     }
 
 

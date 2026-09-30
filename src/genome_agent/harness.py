@@ -39,6 +39,7 @@ from genome_agent.executor.validation import (
     validate,
 )
 from genome_agent.provenance.log import ProvenanceLog
+from genome_agent.resources.ledger import MachineLedger, Reservation
 from genome_agent.resources.models import ResourceBudget
 from genome_agent.resources.observations import ObservationStore, ResourceObservation
 from genome_agent.state.lock import project_lock
@@ -56,10 +57,12 @@ class Harness:
         project_dir: Path,
         registry: ToolRegistry,
         observations: ObservationStore | None = None,
+        ledger: MachineLedger | None = None,
     ) -> None:
         self.project_dir = project_dir.resolve()
         self.registry = registry
         self.observations = observations or ObservationStore()
+        self.ledger = ledger or MachineLedger()
         self.provenance = ProvenanceLog(self.project_dir)
         self._tx_depth = 0
         self._children: dict[int, subprocess.Popen[bytes]] = {}
@@ -96,22 +99,31 @@ class Harness:
         raise KeyError(f"unknown job '{job_id}'; known: {[j.id for j in self.state.jobs]}")
 
     def available_budget(self) -> tuple[ResourceBudget, list[str]]:
-        """Policy budget minus what RUNNING jobs have reserved."""
+        """min(project budget minus its RUNNING jobs, machine capacity minus all
+        reservations on this machine), and the jobs holding resources."""
         res = self.state.system_resources
         assert res is not None
         budget = self.state.policy.apply(res)
         running = [j for j in self.state.jobs if j.status == JobStatus.RUNNING]
-        if not running:
-            return budget, []
         disk = sum(j.estimate.disk_gb + j.estimate.tmp_gb for j in running if j.estimate)
+        machine, holders = self.ledger.free(self.state.policy)
+        mine = {self._ledger_key(j.id) for j in running}
+        others = [h for h in holders if h not in mine]
         return (
             ResourceBudget(
-                cpu_threads=budget.cpu_threads - sum(j.cpus for j in running),
-                ram_gb=round(budget.ram_gb - sum(j.ram_gb for j in running), 2),
+                cpu_threads=min(
+                    budget.cpu_threads - sum(j.cpus for j in running), machine.cpu_threads
+                ),
+                ram_gb=round(
+                    min(budget.ram_gb - sum(j.ram_gb for j in running), machine.ram_gb), 2
+                ),
                 disk_gb=round(budget.disk_gb - disk, 2),
             ),
-            [j.id for j in running],
+            [j.id for j in running] + others,
         )
+
+    def _ledger_key(self, job_id: str) -> str:
+        return f"{self.project_dir}::{job_id}"
 
     def record_decision(self, decision: DecisionRecord) -> None:
         """Record a decision that does not launch a job (e.g. stop, replan)."""
@@ -162,7 +174,9 @@ class Harness:
 
     def run_tool(self, req: JobRequest, wait_s: float | None = None) -> Job:
         """Validate and launch. Wait up to `wait_s` seconds (None = until done)."""
-        with self.transaction() as state:
+        # project lock -> ledger lock: validation, launch and reservation are atomic
+        # with respect to every other project on this machine.
+        with self.transaction() as state, self.ledger.locked():
             res = state.system_resources
             assert res is not None
             job_id = f"{len(state.jobs) + 1:04d}-{req.tool}"
@@ -235,6 +249,17 @@ class Harness:
             (outdir / "command.sh").write_text("#!/bin/sh\n" + limits + shlex.join(vj.argv) + "\n")
             proc = launch(outdir, spec)
             self._children[proc.pid] = proc
+            self.ledger.reserve(
+                Reservation(
+                    key=self._ledger_key(job_id),
+                    project=str(self.project_dir),
+                    job_id=job_id,
+                    outdir=str(outdir),
+                    runner_pid=proc.pid,
+                    cpus=req.cpus,
+                    ram_gb=req.ram_gb,
+                )
+            )
             job.runner_pid, job.status = proc.pid, JobStatus.RUNNING
             self.provenance.append("job_started", job_id=job_id, actor=req.actor, argv=vj.argv)
 
@@ -282,6 +307,7 @@ class Harness:
                         self._finalize(state, job, result)
                         continue
                     if job.cancel_requested:
+                        self.ledger.release(self._ledger_key(job.id))
                         job.status = JobStatus.CANCELLED
                         job.error = "cancelled on request (before the tool started)"
                         job.finished_at = datetime.now(UTC)
@@ -295,6 +321,7 @@ class Harness:
                     job.finished_at = datetime.now(UTC)
                     state.failures.append(f"{job.id}: {job.error}")
                     self.provenance.append("job_lost", job_id=job.id, error=job.error)
+                    self.ledger.release(self._ledger_key(job.id))
 
     def _reap(self, pid: int | None) -> None:
         proc = self._children.pop(pid, None) if pid is not None else None
@@ -334,6 +361,7 @@ class Harness:
             )
 
     def _finalize(self, state: ProjectState, job: Job, r: ExecutionResult) -> None:
+        self.ledger.release(self._ledger_key(job.id))
         job.exit_code, job.wall_time_s, job.timed_out, job.error = (
             r.exit_code,
             round(r.wall_time_s, 3),

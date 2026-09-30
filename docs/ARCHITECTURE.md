@@ -137,6 +137,16 @@ refresh  ─► on every project open/poll: execution.json → SUCCEEDED/FAILED/
 - `run_tool(wait_s=…)` returns while the job keeps running. `wait_job`, `job_status` and `cancel_job` follow it up.
 - A job survives the CLI or Pi call that launched it. Cancellation (SIGTERM) is race-safe: it works even before the tool process exists.
 
+### Machine-wide reservations
+
+A project's budget comes from its own snapshot, so two projects could each believe they own the machine.
+Every RUNNING job is therefore also written to `~/.local/share/genome-agent/reservations.json`
+(`$GENOME_AGENT_DATA_DIR`, with its own flock). A new job is validated against **min(project budget
+minus its running jobs, live machine capacity minus all reservations)**. Rejections name the jobs
+holding the resources, including those of other projects. Validation, launch and reservation happen
+under project lock → ledger lock, which is a fixed order, so it cannot deadlock. Reservations are released on
+finish, loss or cancellation, and entries whose runner is gone are garbage-collected.
+
 ### Estimated vs. observed resources
 
 Every finished job appends a `ResourceObservation` (tool, full params, estimate, peak RSS, input size)
