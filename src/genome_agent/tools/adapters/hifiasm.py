@@ -1,16 +1,23 @@
 """hifiasm: haplotype-resolved de novo assembly of PacBio HiFi reads.
 
-Memory model:
-- Verified: the initial k-mer bloom filter takes 2^(f-3) bytes (`-f`, default
-  37 = 16 GiB). The man page recommends -f0 for small genomes. Measured on this
-  project's toy data: -f37 peaks at 16.08 GiB and -f0 at 0.09 GiB.
-- Uncalibrated: the part that scales with the input. `_GB_PER_GBP_READS` is a
-  deliberately conservative placeholder until observed peak RSS from real runs
-  (Job.peak_rss_gb) is used to calibrate it.
+Memory model: peak = max(k-mer counting phase, error-correction phase).
+Phases do not add up: the bloom filter is freed after counting.
+- Verified: the counting bloom filter takes 2^(f-3) bytes (`-f`, default 37 =
+  16 GiB). The man page recommends -f0 for small genomes. Toy data: -f37 16.08
+  GiB, -f0 0.09 GiB.
+- Calibrated on ONE real run (hifiasm 0.25.0, 28.24 Gbp potato HiFi, -f37, 14
+  threads; per-minute RSS curve): counting peaked at 24.9 GB (16 GiB bloom +
+  ~9 GB -> 0.35 GB/Gbp rounded up); three correction rounds plateaued at
+  23.4 GB (0.81 GB/Gbp -> 0.9 rounded up). This model gives 26.4 GB for that
+  run, against 24.93 GB observed.
+- Uncalibrated: counting without the bloom filter (-f0) at scale keeps
+  singleton k-mers; 1.0 GB/Gbp is a conservative placeholder.
+Observed peaks on this machine still raise estimates (observations.py).
 """
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from typing import Any
 
@@ -22,8 +29,10 @@ from genome_agent.tools.seqstats import gfa_to_fasta
 
 PREFIX = "asm"
 _BASE_RAM_GB = 0.5
-_GB_PER_GBP_READS = 1.0  # UNCALIBRATED placeholder, see module docstring
-_DISK_PER_INPUT_BYTE = 3.0  # ec/ovlp bins + GFAs; heuristic
+_COUNT_GB_PER_GBP = 0.35  # counting with bloom filter (1 real run)
+_COUNT_NO_BLOOM_GB_PER_GBP = 1.0  # counting with -f0: UNCALIBRATED placeholder
+_CORRECT_GB_PER_GBP = 0.9  # error-correction plateau (1 real run)
+_DISK_PER_INPUT_BYTE = 3.0  # ec/ovlp bins + GFAs; one real run used 2.1x the gz input
 
 
 def estimate_read_bases(inputs: ToolInputs) -> tuple[int, str]:
@@ -69,15 +78,22 @@ class Hifiasm(ToolAdapter[HifiasmParams]):
 
     def estimate(self, inputs: ToolInputs, params: HifiasmParams, cpus: int) -> ResourceEstimate:
         bases, how = estimate_read_bases(inputs)
+        gbp = bases / 1e9
         bloom_gb = 2 ** (params.bloom_bits - 3) / 1024**3 if params.bloom_bits else 0.0
-        data_gb = _GB_PER_GBP_READS * bases / 1e9
-        in_bytes = inputs.input_bytes
+        if params.bloom_bits:
+            counting = _BASE_RAM_GB + bloom_gb + _COUNT_GB_PER_GBP * gbp
+            count_basis = f"bloom 2^({params.bloom_bits}-3) B = {bloom_gb:.2f} GiB (verified) + "
+            count_basis += f"{_COUNT_GB_PER_GBP} GB/Gbp (1 real run)"
+        else:
+            counting = _BASE_RAM_GB + _COUNT_NO_BLOOM_GB_PER_GBP * gbp
+            count_basis = f"no bloom: {_COUNT_NO_BLOOM_GB_PER_GBP} GB/Gbp (UNCALIBRATED)"
+        correction = _BASE_RAM_GB + _CORRECT_GB_PER_GBP * gbp
         return ResourceEstimate(
             cpus=cpus,
-            ram_gb=round(_BASE_RAM_GB + bloom_gb + data_gb, 2),
-            disk_gb=round(_DISK_PER_INPUT_BYTE * in_bytes / 1e9 + 0.05, 2),
-            basis=f"bloom filter 2^({params.bloom_bits}-3) B = {bloom_gb:.2f} GiB (verified); "
-            f"{_GB_PER_GBP_READS} GB per Gbp of reads (UNCALIBRATED) x {bases / 1e9:.3f} Gbp "
+            ram_gb=math.ceil(max(counting, correction) * 100) / 100,
+            disk_gb=round(_DISK_PER_INPUT_BYTE * inputs.input_bytes / 1e9 + 0.05, 2),
+            basis=f"max(counting {counting:.2f} GB [{count_basis}], correction "
+            f"{correction:.2f} GB [{_CORRECT_GB_PER_GBP} GB/Gbp, 1 real run]) for {gbp:.3f} Gbp "
             f"({how}); base {_BASE_RAM_GB} GB",
         )
 

@@ -28,7 +28,15 @@ def test_bloom_filter_term_matches_manual():
     assert default.ram_gb == pytest.approx(0.5 + 16.0)  # 2^(37-3) B = 16 GiB
     assert no_bloom.ram_gb == pytest.approx(0.5)
     assert h.estimate(tiny, HifiasmParams(bloom_bits=38), 4).ram_gb == pytest.approx(32.5)
-    assert "UNCALIBRATED" in default.basis and "verified" in default.basis
+    assert "verified" in default.basis and "1 real run" in default.basis
+    assert "UNCALIBRATED" in no_bloom.basis  # -f0 counting at scale is not measured yet
+
+
+def test_model_reproduces_the_real_phureja_run():
+    """hifiasm 0.25, 28.24 Gbp HiFi, -f37, observed peak 24.93 GB (max of phases, not a sum)."""
+    inputs = ToolInputs(files=(), input_bytes=10_372_360_661, read_bases=28_241_525_595)
+    est = Hifiasm().estimate(inputs, HifiasmParams(), 14)
+    assert 24.93 <= est.ram_gb <= 24.93 * 1.10  # conservative, within 10 %
 
 
 def test_read_bases_measured_or_inferred(tmp_path):
