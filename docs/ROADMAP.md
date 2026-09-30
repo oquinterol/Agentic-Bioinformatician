@@ -66,3 +66,23 @@ m84100, `-f0 --primary`, 28.74 GB. That plan passed the harness plan check. The 
 was rejected. The visible change in its environment was `requires_verified_origin: true` in `list_tools`, which likely guided it.
 This is one run, so model variance cannot be excluded. Either way, the harness now guarantees the outcome
 whatever the model decides. (seqkit took 1,109 s instead of 657 s because it shared the CPU with the running assembly.)
+
+## First real assembly on this workstation (m84100, hifiasm 0.25.0, default mode, -f37)
+
+Wall time 5.9 h, 75 CPU-h on 14 threads, peak RSS **24.93 GB** (wait4; matches hifiasm's own report), all within a
+kernel-enforced 48 GB scope. Estimates: 32.06 GB (inferred bases), 44.74 GB (measured bases).
+
+| | Previous cluster run (hifiasm 0.18.5, 36 cores, `…hap_cat_1_2.p_ctg_correct.fa`) | This run |
+|---|---|---|
+| hap1 | 1,227 contigs · 799.0 Mb · N50 8.66 Mb | 743 contigs · 792.9 Mb · N50 17.3 Mb |
+| hap2 | 625 contigs · 781.7 Mb · N50 8.20 Mb | 313 contigs · 773.5 Mb · N50 15.5 Mb |
+| primary | – | 648 contigs · 843.7 Mb · N50 35.7 Mb |
+
+Caveats: the earlier file is named `_correct` and may have been manually broken at misjoins, which lowers N50.
+N50 says nothing about correctness. BUSCO/compleasm and Merqury QV are still needed and are not installed yet.
+
+**Memory model lesson (from the per-minute curve):** peak = **max** of phases, not their sum.
+The bloom-filter k-mer counting phase peaked at 24.9 GB (~16 GB bloom + ~9 GB) and ended at 0.2 h. The three error-correction
+rounds plateaued at ~23 GB without the bloom filter (≈0.8 GB per Gbp of reads). The adapter's additive model
+(bloom + 1.0 GB/Gbp) is therefore structurally wrong for large inputs, even though its per-Gbp coefficient was close.
+This is one run, with -f37 only. The -f0 counting phase is still unmeasured at scale.
