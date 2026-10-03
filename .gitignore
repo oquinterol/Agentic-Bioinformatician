@@ -6,3 +6,4 @@ __pycache__/
 .ruff_cache/
 node_modules/
 bench/
+mb_downloads/
