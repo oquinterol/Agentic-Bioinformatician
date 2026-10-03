@@ -1,5 +1,7 @@
 # GenomeAgent
 
+[![CI](https://github.com/oquinterol/Agentic-Bioinformatician/actions/workflows/ci.yml/badge.svg)](https://github.com/oquinterol/Agentic-Bioinformatician/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 A resource-aware autonomous agent for genome assembly. Given reads, biological
 context and an objective, it looks for the best scientifically defensible
 strategy that fits **this** machine:
@@ -121,3 +123,7 @@ Run GenomeAgent as a user that has read access to the data it needs and write
 access only where you are happy for results to land. If you need hard
 isolation (untrusted data, shared servers), run the whole thing in a container
 or VM and mount the data read-only.
+
+## License
+
+[MIT](LICENSE). Bioinformatics tools invoked by the harness (hifiasm, seqkit, minimap2, jellyfish, GenomeScope2, compleasm, Merqury…) keep their own licences and are not distributed here.

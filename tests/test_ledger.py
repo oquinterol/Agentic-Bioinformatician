@@ -3,7 +3,12 @@ from datetime import UTC, datetime
 from genome_agent.agent.simulation import Scenario, build_project
 from genome_agent.executor.validation import JobRequest
 from genome_agent.harness import Harness
-from genome_agent.resources.ledger import MachineLedger, Reservation, live_capacity
+from genome_agent.resources.ledger import (
+    CAPACITY_ENV,
+    MachineLedger,
+    Reservation,
+    live_capacity,
+)
 from genome_agent.resources.models import ResourcePolicy
 from genome_agent.state.models import JobStatus
 
@@ -89,6 +94,12 @@ def test_finished_jobs_release_their_reservation(tmp_path):
     assert ledger.live() == []
 
 
-def test_live_capacity_reads_this_machine():
+def test_live_capacity_reads_this_machine(monkeypatch):
+    monkeypatch.delenv(CAPACITY_ENV)
     threads, ram = live_capacity(ResourcePolicy())
     assert threads >= 1 and ram > 0
+
+
+def test_capacity_can_be_fixed_by_environment(monkeypatch):
+    monkeypatch.setenv(CAPACITY_ENV, "12,40.5")
+    assert live_capacity(ResourcePolicy()) == (12, 40.5)

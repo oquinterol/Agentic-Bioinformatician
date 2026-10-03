@@ -98,7 +98,9 @@ def qv(args: argparse.Namespace) -> dict[str, Any]:
     )
     qv_rows = parse_merqury_qv((work / f"{prefix}.qv").read_text())
     comp_rows = parse_merqury_completeness((work / f"{prefix}.completeness.stats").read_text())
-    names = {Path(a).name.removesuffix(".fa").removesuffix(".fasta"): str(a) for a in args.assemblies}
+    names = {
+        Path(a).name.removesuffix(".fa").removesuffix(".fasta"): str(a) for a in args.assemblies
+    }
     report: dict[str, Any] = {"k": args.k, "reads": list(map(str, args.reads)), "assemblies": {}}
     for name, row in qv_rows.items():
         key = names.get(name, name)  # "both" covers the pair

@@ -30,9 +30,17 @@ LEDGER_FILE = "reservations.json"
 # policy -> (threads, ram_gb) the machine offers to jobs in total
 Capacity = Callable[[ResourcePolicy], tuple[int, float]]
 
+# "threads,ram_gb": fixed total capacity offered to jobs, instead of reading the machine.
+# Used by the test suite (and CI runners of any size); also a way to cap the agent on purpose.
+CAPACITY_ENV = "GENOME_AGENT_CAPACITY"
+
 
 def live_capacity(policy: ResourcePolicy) -> tuple[int, float]:
-    """Read the machine now (not a project snapshot)."""
+    """Read the machine now (not a project snapshot), unless GENOME_AGENT_CAPACITY fixes it."""
+    override = os.environ.get(CAPACITY_ENV)
+    if override:
+        threads_text, ram_text = override.split(",")
+        return max(1, int(threads_text)), float(ram_text)
     threads = len(os.sched_getaffinity(0))
     mem_total_kib = next(
         int(line.split()[1])
