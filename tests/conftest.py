@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 
 import pytest
 
+from genome_agent.resources.ledger import CAPACITY_ENV
 from genome_agent.resources.models import SystemResources
 from genome_agent.resources.observations import DATA_DIR_ENV
 
@@ -30,6 +31,9 @@ def make_resources(**overrides) -> SystemResources:
 def isolated_observations(tmp_path_factory, monkeypatch):
     """Each test gets its own machine-wide observation store (never ~/.local/share)."""
     monkeypatch.setenv(DATA_DIR_ENV, str(tmp_path_factory.mktemp("ga-data")))
+    # Budgets come from each test's simulated machine, not from the host running pytest
+    # (subprocess bridge calls inherit this too).
+    monkeypatch.setenv(CAPACITY_ENV, "1024,4096")
 
 
 @pytest.fixture

@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    # The harness reads /proc and uses Linux-only APIs.
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - run: pip install -e '.[dev]'
+      # Bioinformatics tools (hifiasm, seqkit, minimap2…) and Pi are not installed here;
+      # tests that need them are skipped.
+      - run: pytest -q
+      - run: ruff check src tests
+      - run: mypy src
