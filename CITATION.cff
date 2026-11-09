@@ -1,0 +1,28 @@
+cff-version: 1.2.0
+title: 'GenomeAgent: resource-aware autonomous agent for genome assembly'
+message: >-
+  If you use this software, please cite it using the metadata from
+  this file.
+type: software
+authors:
+  - given-names: Oscar Alexis
+    family-names: Quintero López
+    orcid: 'https://orcid.org/0000-0001-8926-6400'
+    affiliation: Universidad Nacional de Colombia
+repository-code: 'https://github.com/oquinterol/Agentic-Bioinformatician'
+license: MIT
+version: 0.1.0
+keywords:
+  - genome assembly
+  - bioinformatics
+  - AI agents
+  - LLM
+  - reproducibility
+  - provenance
+abstract: >-
+  GenomeAgent is a resource-aware autonomous agent for genome assembly.
+  Given reads, biological context and an objective, it searches for the
+  best scientifically defensible strategy that fits the available
+  machine through an observe, plan, estimate, execute, evaluate and
+  replan loop. A Python harness is the authority on resources, policy,
+  state, validation and provenance.
